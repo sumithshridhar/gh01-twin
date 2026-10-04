@@ -41,6 +41,7 @@ export class Sim {
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
     this.fogCycle = 0;
+    this.stageSince = -1e9;
     this.lastClimateLog = '';
     this.robot = { x: 4.6, y: -0.8, lift: 1.1, wp: 3, route: this.makeRoute(), phase: 'move', timer: 0, scanning: false,
       battery: 76, scanned: 31, pollinated: 118, stuck: false, override: null, puff: 0 };
@@ -152,19 +153,25 @@ export class Sim {
     const p = { vent: a.vent, fans: 0, pad: false, fog: false, fogMode: false, led: false, why: '' };
     if (day) {
       p.vent = clamp(18 + (Tctl - target) * 28, 5, 100);
-      // staged fan control with hysteresis (on at the upper threshold, off only 1–1.2 °C lower)
+      // staged cooling: 0 = vents only, 1 = one fan, 2 = both fans, 3 = both fans + wet pad. One stage up above its
+      // threshold, one stage down below a lower one, and each stage is held ≥ 5 min (pad: 10 min) so nothing
+      // short-cycles, except a step up at ≥ 30 °C. Before 4 Oct 2026 the stages jumped and chattered: in a heat wave the pad switched 145× in 90 min.
       const pre = fut > 32 && Tctl > 25.5;
-      let fans = a.fans;
-      if (fans === 0 && (Tctl > 26.8 || pre)) fans = 1;
-      if (fans >= 1 && Tctl > 28.2) fans = 2;
-      if (fans === 2 && Tctl < 27.0) fans = 1;
-      if (fans >= 1 && Tctl < 25.6 && !pre) fans = 0;
-      p.fans = fans;
-      p.pad = fans === 2 ? r.RH < 82 : a.pad && fans >= 1 && Tctl > 26.4 && r.RH < 85;
-      if (fans !== a.fans || p.pad !== a.pad) {
-        p.why = fans === 2 ? `air ${Tctl.toFixed(1)} °C > 28.2 → both fans + wet pad`
-          : fans === 1 ? (pre && Tctl <= 26.8 ? `forecast ${fut.toFixed(0)} °C in 1 h → pre-cool` : `air ${Tctl.toFixed(1)} °C (stage 1 band 25.6–28.2)`)
-          : `air ${Tctl.toFixed(1)} °C < 25.6 → natural ventilation`;
+      const NAMES = ['vents only', 'one fan', 'both fans', 'both fans + wet pad'];
+      const UP = [26.8, 28.2, 28.2], DOWN = [25.6, 27.0, 26.0];
+      const now = a.fans === 2 && a.pad ? 3 : a.fans;
+      let stage = now;
+      if (stage < 3 && (Tctl > UP[stage] || (stage === 0 && pre)) && (stage < 2 || r.RH < 88)) stage++;
+      else if (stage > 0 && (Tctl < DOWN[stage - 1] || (stage === 3 && r.RH > 92)) && !(stage === 1 && pre)) stage--;
+      const minHold = stage === 3 || now === 3 ? 10 : 5;                  // the pad pump gets a longer minimum run
+      if (stage !== now && this.t - this.stageSince < minHold && !(stage > now && Tctl >= 30)) stage = now;
+      if (stage !== now) this.stageSince = this.t;
+      p.fans = Math.min(stage, 2);
+      p.pad = stage === 3;
+      if (stage !== now) {
+        p.why = stage > now ? (stage === 1 && pre && Tctl <= UP[0] ? `forecast ${fut.toFixed(0)} °C in 1 h → pre-cool: one fan`
+          : `air ${Tctl.toFixed(1)} °C > ${UP[now]} → ${NAMES[stage]}`)
+          : `air ${Tctl.toFixed(1)} °C${stage === 2 && r.RH > 92 ? `, RH ${r.RH.toFixed(0)} %` : ''} → step down to ${NAMES[stage]}`;
       }
       if (p.fans > 0) p.vent = 0;                                       // fan-pad mode needs a closed house
       const fogWant = a.fogMode ? r.vpd > 1.2 && Tctl > 25 && r.RH < 76 : r.vpd > 1.45 && Tctl > 25.5 && r.RH < 70;
