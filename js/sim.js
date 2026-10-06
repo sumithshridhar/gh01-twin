@@ -36,12 +36,14 @@ export class Sim {
     this.irrHold = 0;
     this.dli = 14.2;
     this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
-    this.flags = { box1Stuck: null, box1Fault: false, sensorWarned: false, hardThermo: false, tankLow: false, tankLowLow: false,
+    this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, tankLow: false, tankLowLow: false,
       irrBlocked: false, diseaseFound: false, robotAlarm: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
     this.fogCycle = 0;
     this.stageSince = -1e9;
+    this.noise = [0, 0];
+    this.sens = [{ v: null, since: this.t }, { v: null, since: this.t }];   // last value of each climate box + when it last changed
     this.lastClimateLog = '';
     this.robot = { x: 4.6, y: -0.8, lift: 1.1, wp: 3, route: this.makeRoute(), phase: 'move', timer: 0, scanning: false,
       battery: 76, scanned: 31, pollinated: 118, stuck: false, override: null, puff: 0 };
@@ -82,8 +84,9 @@ export class Sim {
     const i = this.inn, T = i.T;
     const RH = clamp((i.e / es(T)) * 100, 5, 100);
     const vpd = Math.max(0, es(T) - i.e);
-    const box1 = this.flags.box1Stuck ?? T - 0.1;
-    const box2 = T + this.box2off;
+    const [s1, s2] = this.flags.boxStuck;                                 // a frozen box repeats one number exactly
+    const box1 = s1 ?? T - 0.1 + this.noise[0];
+    const box2 = s2 ?? T + this.box2off + this.noise[1];
     return { T, RH, vpd, CO2: i.CO2, box1, box2, ppfd: this.out.solar * 2.02 * 0.72, solar: this.out.solar };
   }
 
@@ -99,6 +102,7 @@ export class Sim {
 
   step(dt) {
     this.t += dt;
+    this.noise = this.noise.map(() => (Math.random() - 0.5) * 0.08);     // live sensors flicker by a few hundredths
     if (this.t >= 1440) { this.t -= 1440; this.day++; this.dli = 0; }
     const o = this.out = this.weather(this.t);
     const a = this.act, i = this.inn;
@@ -146,7 +150,8 @@ export class Sim {
   // ── climate: AI proposes, PLC checks ───────────────────────
   climateControl(dt) {
     const r = this.readings, o = this.out, a = this.act;
-    const Tctl = this.flags.box1Fault ? r.box2 : (r.box1 + r.box2) / 2;
+    const f = this.flags;
+    const Tctl = f.boxBad[0] ? r.box2 : f.boxBad[1] ? r.box1 : f.disagree ? Math.max(r.box1, r.box2) : (r.box1 + r.box2) / 2;
     const day = o.solar > 40;
     const target = day ? 24 : 18.5;
     const fut = this.weather(this.t + 60).T;
@@ -187,16 +192,16 @@ export class Sim {
     if (o.wind > 10) { p.vent = Math.min(p.vent, 10); plcNote = 'wind > 10 m/s → vent limited to 10 %'; }
     if (p.pad && p.fans === 0) { p.pad = false; plcNote = 'pad needs fans'; }
     if (p.fog && r.RH > 85) { p.fog = false; p.fogMode = false; plcNote = 'fog blocked: RH > 85 %'; }
-    // hard-wired thermostat (independent of AI + PLC program)
-    if (Tctl >= 35) {
+    // hard-wired thermostat (independent of AI + PLC program, with its own bulb, so a bad climate box can't blind it)
+    if (r.T >= 35) {
       p.fans = 2; p.pad = true; p.vent = 0;
       if (!this.flags.hardThermo) {
         this.flags.hardThermo = true;
-        this.app.log('ALARM', `HARD-WIRED thermostat: ${Tctl.toFixed(1)} °C ≥ 35 °C → both fans + pad forced ON`);
+        this.app.log('ALARM', `HARD-WIRED thermostat: ${r.T.toFixed(1)} °C ≥ 35 °C → both fans + pad forced ON`);
         this.app.alarm('High temperature · hard-wired cooling ON');
         this.app.sound.alarm();
       }
-    } else if (this.flags.hardThermo && Tctl < 33) { this.flags.hardThermo = false; this.app.alarm(null); }
+    } else if (this.flags.hardThermo && r.T < 33) { this.flags.hardThermo = false; this.app.alarm(null); }
     const changed = p.fans !== a.fans || p.pad !== a.pad || Math.abs(p.vent - a.vent) > 12 || p.led !== a.led || p.fogMode !== !!a.fogMode;
     const sig = `${p.fans}|${p.pad}|${Math.round(p.vent / 12)}|${p.led}|${p.fogMode}`;
     if (changed && sig !== this.lastClimateLog) {
@@ -377,21 +382,37 @@ export class Sim {
   // ── fault detection ────────────────────────────────────────
   faultChecks(dt) {
     const f = this.flags, w = this.w;
-    if (this.faults.sensor && !f.box1Fault) {
-      f.box1Stuck = f.box1Stuck ?? this.readings.box1;
-      const r = this.readings;
-      if (!f.sensorWarned && Math.abs(r.box1 - r.box2) > 1.2) {
-        f.box1Fault = true; f.sensorWarned = true;
-        this.app.chain('ALARM');
-        this.app.log('SENSE', `Climate box 1 reads ${r.box1.toFixed(1)} °C unchanged for 20 min; box 2 reads ${r.box2.toFixed(1)} °C`);
-        this.app.log('PLC', 'Plausibility check failed (stuck value + disagreement > 1.2 °C) → box 1 marked BAD, control uses box 2');
-        this.app.flagComponent('climate_box_1', 'fault');
-        this.app.alarm('Sensor fault · climate box 1');
-        this.app.toast('Telegram → farmer', 'GH-01: climate sensor 1 is stuck. Running on sensor 2. Check its fan / cable.');
-        this.app.log('FARMER', 'Alert sent: sensor fault (control continues on box 2)');
-        this.app.sound.alarm();
-        this.app.focusOn?.('climate_box_1');
+    // Climate boxes: a live sensor flickers; a frozen one repeats the same number. Before 6 Oct 2026 the twin only ever
+    // checked box 1 (by disagreement), so a frozen box 2 went unnoticed all day and dragged the average down.
+    const r = this.readings, vals = [r.box1, r.box2];
+    const age = (i) => (this.t - this.sens[i].since + 1440) % 1440;
+    vals.forEach((v, i) => { if (this.sens[i].v === null || Math.abs(v - this.sens[i].v) > 1e-6) { this.sens[i].v = v; this.sens[i].since = this.t; } });
+    for (const i of [0, 1]) {
+      const j = 1 - i;
+      if (f.boxBad[0] || f.boxBad[1] || age(i) < 20 || age(j) > 2) continue;
+      f.boxBad[i] = true; f.disagree = false;
+      const id = `climate_box_${i + 1}`;
+      this.app.chain('ALARM');
+      this.app.log('SENSE', `Climate box ${i + 1} has read exactly ${vals[i].toFixed(2)} °C for 20 min; box ${j + 1} keeps moving (${vals[j].toFixed(2)} °C)`);
+      this.app.log('PLC', `Flat-line check failed → box ${i + 1} marked BAD, control uses box ${j + 1}`);
+      this.app.flagComponent(id, 'fault');
+      this.app.alarm(`Sensor fault · climate box ${i + 1}`);
+      this.app.toast('Telegram → farmer', `GH-01: climate sensor ${i + 1} is frozen. Running on sensor ${j + 1}. Check its fan / cable.`);
+      this.app.log('FARMER', `Alert sent: sensor fault (control continues on box ${j + 1})`);
+      this.app.sound.alarm();
+      this.app.focusOn?.(id);
+    }
+    // both still moving but far apart: we can't tell which is right, so cool on the warmer one (the safe side)
+    const gap = Math.abs(r.box1 - r.box2);
+    if (!f.boxBad[0] && !f.boxBad[1]) {
+      if (gap > 1.5) f.disagreeSince ??= this.t; else f.disagreeSince = null;
+      if (!f.disagree && f.disagreeSince !== null && (this.t - f.disagreeSince + 1440) % 1440 >= 10) {
+        f.disagree = true;
+        this.app.log('PLC', `Climate boxes disagree by ${gap.toFixed(1)} °C for 10 min and both are live → control uses the warmer one`);
+        this.app.alarm('Climate sensors disagree');
+        this.app.toast('Telegram → farmer', `GH-01: climate sensors 1 and 2 differ by ${gap.toFixed(1)} °C. Cooling on the warmer one. Please check both.`);
       }
+      if (f.disagree && gap < 0.8) { f.disagree = false; this.app.alarm(null); this.app.log('OK', 'Climate boxes agree again'); }
     }
     if (w.tank < 20 && !f.tankLow) {
       f.tankLow = true;
@@ -484,12 +505,14 @@ export class Sim {
         A.log('OK', 'Scenario: pump fails silently (motor runs dry / seized)');
         this.scenario('irrigate');
         break;
-      case 'sensor':
+      case 'sensor': {
+        const n = Math.random() < 0.5 ? 0 : 1, v = n ? this.readings.box2 : this.readings.box1;
         this.faults.sensor = true;
-        this.flags.box1Stuck = this.readings.box1 - 2.5;
-        A.log('OK', 'Scenario: climate box 1 stops updating (stuck value)');
-        A.toast('Scenario', 'Climate sensor 1 froze. The PLC cross-checks it against sensor 2.');
+        this.flags.boxStuck[n] = v;
+        A.log('OK', `Scenario: climate box ${n + 1} freezes at ${v.toFixed(2)} °C (stuck value)`);
+        A.toast('Scenario', `Climate sensor ${n + 1} froze. Live sensors flicker; a frozen one repeats the same number. Watch the PLC find it.`);
         break;
+      }
       case 'water':
         this.w.supply = false; this.w.tank = Math.min(this.w.tank, 26);
         this.faults.water = true;
@@ -532,7 +555,7 @@ export class Sim {
     const L = (rows, key, label) => ({ rows, spark: key ? { key, label } : null });
     const z = (n) => this.zones[n];
     if (id.startsWith('climate_box')) {
-      const bad = id.endsWith('1') && this.flags.box1Fault;
+      const bad = this.flags.boxBad[+id.slice(-1) - 1];
       return L([['Air temp', `${(id.endsWith('1') ? r.box1 : r.box2).toFixed(1)} °C`], ['Humidity', `${r.RH.toFixed(0)} %`],
         ['VPD', `${r.vpd.toFixed(2)} kPa`], ['CO₂', `${r.CO2.toFixed(0)} ppm`], ['Fan', bad ? '— (stuck)' : '4 200 rpm'], ['Status', bad ? 'BAD · ignored' : 'OK']], 'T', 'Air temperature °C');
     }
