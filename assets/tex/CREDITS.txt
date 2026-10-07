@@ -1,0 +1,6 @@
+Textures: Poly Haven (polyhaven.com), CC0 public domain.
+soil: red_laterite_soil_stones
+concrete: concrete_pavement
+brick: red_brick_03
+plaster: white_plaster_02
+corrugated: corrugated_iron_02
