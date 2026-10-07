@@ -44,7 +44,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.495;
 controls.minDistance = 0.12;
-controls.maxDistance = 70;
+controls.maxDistance = 95;
 controls.target.set(4.5, 1.2, 0);
 let composer = null, bloom = null;
 function buildComposer() {
@@ -103,7 +103,8 @@ function highlight(objs) {
 
 // ── loading ───────────────────────────────────────────────────
 const FILES = [['assets/gh_env.glb.json', 0.8, 'Structure, rows, water mains'], ['assets/gh_tech.glb.json', 1.5, 'Tanks, fertigation skid, control cabinet'],
-  ['assets/gh_equip.glb.json', 1.1, 'Fans, sensors, cameras, lights, robot'], ['assets/gh_plants.glb.json', 3.9, '54 tomato plants with IDs']];
+  ['assets/gh_equip.glb.json', 1.4, 'Fans, sensors, cameras, robot'], ['assets/gh_plants.glb.json', 3.9, '54 tomato plants with IDs'],
+  ['assets/gh_farm.glb.json', 0.9, 'The farm: solar packhouse, pond, entry room, shade net']];
 const loaded = FILES.map(() => 0);
 const FIRST = 3;   // structure, tech corner, equipment: enough to start; the plants stream in afterwards
 const setProgress = (msg) => {
@@ -129,7 +130,7 @@ async function loadGLB(f, i) {
     chunks.push(value); got += value.length;
     loaded[i] = Math.min(0.97, got / total);
     if (i < FIRST) setProgress(`Loading ${f[2]}… ${Math.round(loaded[i] * 100)} %`);
-    else growChip(`Planting 54 plants · ${Math.round(loaded[i] * 100)} %`);
+    else if (i === 3) growChip(`Planting 54 plants · ${Math.round(loaded[i] * 100)} %`);
   }
   const text = new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
   const { gz } = JSON.parse(text);
@@ -142,7 +143,8 @@ async function loadGLB(f, i) {
 }
 
 let SIMDATA, sim;
-const SEE = ['polycarb', 'net', 'glass', 'acrylic', 'water', 'nutrient', 'silicone_clear'];
+const SEE = ['polycarb', 'net', 'glass', 'acrylic', 'water', 'nutrient', 'silicone_clear', 'chainlink', 'aluminet', 'pond_water',
+  'disinfectant'];
 const PLANTMAT = ['leaf', 'stem', 'sepal', 'flower', 'cotyledon', 'fruit', 'twine', 'stem_old', 'anther'];
 const NOPICK_PARTS = new Set(['foundation_floor', 'polycarbonate_walls', 'polycarbonate_roof', 'insect_net']);
 const pickables = [];
@@ -192,6 +194,39 @@ function register(root) {
   return added;
 }
 
+// ── real surfaces (6 Oct 2026): photographed CC0 textures from Poly Haven (assets/tex/CREDITS.txt) ──────────
+const texLoader = new THREE.TextureLoader();
+const REAL = {};
+function realMat(key, opts = {}) {
+  if (REAL[key]) return REAL[key];
+  const ld = (f, srgb) => {
+    const t = texLoader.load(`assets/tex/${f}`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  const m = new THREE.MeshStandardMaterial({ map: ld(`${key}_diff.jpg`, true), normalMap: ld(`${key}_nor.jpg`, false),
+    roughness: opts.roughness ?? 0.92, metalness: opts.metalness ?? 0, color: opts.color ?? 0xffffff });
+  m.name = `real_${key}`;
+  return (REAL[key] = m);
+}
+// UVs from position, picking the plane each face mostly faces (meshes from Blender boxes have no UVs of their own)
+function boxUV(geo, tile, swap = false) {
+  const p = geo.attributes.position, n = geo.attributes.normal;
+  if (!p || !n) return;
+  const uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    let u, v;
+    if (ay >= ax && ay >= az) { u = p.getX(i); v = p.getZ(i); } else if (ax >= az) { u = p.getZ(i); v = p.getY(i); } else { u = p.getX(i); v = p.getY(i); }
+    if (swap) [u, v] = [v, u];
+    uv[i * 2] = u / tile; uv[i * 2 + 1] = v / tile;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+const REALMAP = [['concrete', 'concrete', 2.0], ['brick', 'brick', 1.4], ['plaster_white', 'plaster', 2.5]];
+
 function prepareMaterials(root, comps) {
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -203,21 +238,33 @@ function prepareMaterials(root, comps) {
         see = true; m.transparent = true; m.depthWrite = false; m.side = THREE.DoubleSide;
         if (n.startsWith('polycarb')) { m.opacity = 0.1; m.roughness = 0.06; m.metalness = 0; m.envMapIntensity = 1.6; }
         if (n.startsWith('net')) m.opacity = 0.2;
+        if (n.startsWith('chainlink')) m.opacity = 0.32;
+        if (n.startsWith('aluminet')) { m.opacity = 0.7; m.metalness = 0.8; m.roughness = 0.4; }
+        if (n.startsWith('pond_water')) { m.opacity = 0.86; m.roughness = 0.05; }
       }
       if (PLANTMAT.some((k) => n.startsWith(k))) m.side = THREE.DoubleSide;
       if (n.startsWith('pad')) padMat = m;
     });
+    const real = REALMAP.find(([k]) => mats.some((m) => (m.name || '').startsWith(k)));
+    if (real) {
+      boxUV(o.geometry, real[2]);
+      if (Array.isArray(o.material)) o.material = o.material.map((m) => ((m.name || '').startsWith(real[0]) ? realMat(real[1]) : m));
+      else o.material = realMat(real[1]);
+    }
     o.castShadow = !see;
     o.receiveShadow = true;
     o.userData.see = see;
   });
   const site = comps.find((c) => c.id === 'site');
-  if (site) site.meshes.forEach((m) => {
-    const g = m.geometry, pos = g.attributes.position, uv = new Float32Array(pos.count * 2);
-    for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / 160 + 0.5; uv[i * 2 + 1] = pos.getZ(i) / 160 + 0.5; }
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    m.material = world.groundMaterial();
+  if (site) site.meshes.filter((m) => site.parts[m.userData.partIdx]?.name === 'ground').forEach((m) => {
+    boxUV(m.geometry, 3.5);                                         // Kolar red laterite soil, a 3.5 m photo tile
+    m.material = realMat('soil', { color: 0xf2e6dc });
     m.castShadow = false;
+  });
+  const ph = comps.find((c) => c.id === 'packhouse');
+  if (ph) ph.meshes.filter((m) => ph.parts[m.userData.partIdx]?.name === 'roof').forEach((m) => {
+    boxUV(m.geometry, 1.2, true);                                   // ribs run down the slope
+    m.material = realMat('corrugated', { metalness: 0.55, roughness: 0.45 });
   });
   for (const c of comps) {
     if (!c.id.startsWith('led_r')) continue;
@@ -390,9 +437,10 @@ A.pulse = (from, to, kind) => {
 };
 const SENSORS = ['climate_box_1', 'climate_box_2', 'par_sensor', 'weather_station', 'level_water_tank', 'level_mix_tank', 'flow_meter',
   'pressure_tx', 'substrate_sensor', 'drain_meter', 'slab_scale', 'sticky_trap_1', 'sticky_trap_2', 'sticky_trap_3', 'canopy_camera_1',
-  'canopy_camera_2', 'sensor_flow_cell', 'esp32_node_crop', 'esp32_node_fert'];
+  'canopy_camera_2', 'sensor_flow_cell', 'esp32_node_crop', 'esp32_node_fert', 'level_pond', 'hybrid_inverter'];
 const ACTUATORS = ['irrigation_pump', 'zone_valve_1', 'zone_valve_2', 'zone_valve_3', 'exhaust_fan_1', 'exhaust_fan_2', 'cooling_pad',
-  'vent_drive', 'fog_pump', 'dosing_pump_A', 'dosing_pump_B', 'dosing_pump_acid', 'haf_fan_1', 'haf_fan_2', 'led_r2_1'];
+  'vent_drive', 'fog_pump', 'dosing_pump_A', 'dosing_pump_B', 'dosing_pump_acid', 'haf_fan_1', 'haf_fan_2', 'pond_pump', 'borewell',
+  'source_valves'];
 function buildNetwork() {
   SENSORS.forEach((s) => { const a = compCenter(s), b = compCenter('control_cabinet'); if (a && b) fx.link(`${s}>control_cabinet`, a, b, 'sense'); });
   ACTUATORS.forEach((s) => { const a = compCenter('control_cabinet'), b = compCenter(s); if (a && b) fx.link(`control_cabinet>${s}`, a, b, 'cmd'); });
@@ -486,6 +534,11 @@ function isRunning(id) {
   if (id.startsWith('haf')) return a.haf;
   if (id.startsWith('dosing_pump')) return a.dosing.some(Boolean);
   if (id === 'scout_robot') return !sim.robot.stuck;
+  if (id === 'pond_pump') return a.pondPump;
+  if (id === 'borewell') return a.borePump;
+  if (id === 'source_valves') return a.pondPump || a.borePump;
+  if (id === 'solar_array') return sim.power.pv > 0.05;
+  if (id === 'battery_bank') return sim.power.battKW < -0.02;
   return false;
 }
 $('#systems').addEventListener('click', (e) => {
@@ -897,6 +950,8 @@ $('#scen').addEventListener('click', (e) => {
   if (b.dataset.s === 'heat') flyTo(B(4.8, 0.6, 2.4), B(0.2, 0, 1.9), 1.4);
   if (b.dataset.s === 'water') flyTo(B(3.3, 0.2, 2.2), B(1.2, -1.9, 0.6), 1.4);
   if (b.dataset.s === 'disease') flyTo(B(2.4, 0.9, 1.9), B(4.3, 1.2, 1.0), 1.4);
+  if (b.dataset.s === 'power') flyTo(B(-6.5, 14.0, 4.5), B(3.6, 7.0, 1.5), 1.6);
+  if (b.dataset.s === 'pond') flyTo(B(-3.2, -3.6, 3.4), B(5.2, -10.8, -1.2), 1.6);
 });
 $('#helpbtn').addEventListener('click', () => { $('#help').hidden = false; });
 $('#help-ok').addEventListener('click', () => { $('#help').hidden = true; });
@@ -939,6 +994,27 @@ function updateActuators(dt) {
   if (H.mixer && a.mixer) H.mixer.rotateOnAxis(ax.Y, 6 * dt);
   H.dosing.forEach((r, i) => { if (r && a.dosing[i]) r.rotateOnAxis(ax.Z, 5 * dt); });
   H.solenoids.forEach((mats, i) => mats.forEach((m) => { if (m.emissive) { m.emissive.set(0x45c6e6); m.emissiveIntensity = a.valve[i] ? 2.2 : 0; } }));
+  if (!H.pondWater) {
+    const pc = A.comps.get('farm_pond');
+    const wp = pc && pc.parts.find((q) => q.name === 'water');
+    if (wp) {
+      const mesh = wp.obj.isMesh ? wp.obj : wp.obj.getObjectByProperty('isMesh', true);
+      mesh.geometry.computeBoundingBox();
+      const c0 = mesh.geometry.boundingBox.getCenter(new V3());
+      mesh.geometry.translate(-c0.x, -c0.y, -c0.z);
+      mesh.position.add(c0);
+      if (mesh.userData._n) mesh.userData._n.base.copy(mesh.position);
+      H.pondWater = { mesh, y0: mesh.position.y };
+    }
+  }
+  if (H.pondWater) {
+    const z = sim.pondLevelM() - 3.0;                               // water surface height (ground = 0)
+    const k = Math.max(0.05, (4 + z) / 2.8);
+    const m = H.pondWater.mesh;
+    m.position.y = H.pondWater.y0 + (z + 1.2);
+    if (m.userData._n) m.userData._n.base.y = m.position.y;
+    m.scale.set(k, 1, k);
+  }
   ledOn += ((a.led ? 1 : 0) - ledOn) * Math.min(1, dt * 2);
   growLED.emissiveIntensity = ledOn * 6;
   padWet += ((a.pad ? 1 : 0) - padWet) * Math.min(1, dt * 0.6);
@@ -1055,6 +1131,16 @@ async function loadPlants() {
   A.log('OK', `${SIMDATA.plants.length} plants in place · each has its own ID tag`);
 }
 
+async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar packhouse, pond, entry room, shade net)
+  let g;
+  try { g = await loadWithRetry(4); } catch (e) { console.error(e); return; }
+  scene.add(g.scene);
+  prepareMaterials(g.scene, register(g.scene));
+  if (T.sys) applySystemsView();
+  buildBVH();
+  A.log('OK', 'Farm in place · solar packhouse, farm pond, entry room, shade net');
+}
+
 // ── boot ──────────────────────────────────────────────────────
 (async function boot() {
   try {
@@ -1081,6 +1167,7 @@ async function loadPlants() {
     else loop();
     buildBVH();
     loadPlants();
+    loadFarm();
     window.GH = { A, select, deselect, flyTo, camera, controls, B, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
       frame: (dt = 1 / 30) => { fpsAcc = -1e9; frame(dt); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle };   // console handle for demos
     if (location.hash === '#go') $('#ld-start').click();

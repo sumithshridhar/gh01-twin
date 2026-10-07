@@ -30,13 +30,16 @@ export class Sim {
     this.act = { vent: 35, fans: 0, pad: false, fog: false, haf: true, led: false, pump: false, valve: [false, false, false],
       dosing: [false, false, false], mixer: false };
     this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, todayL: 212, dosedML: 780, supply: true,
-      targetEC: 3.0, targetPH: 5.8 };
+      targetEC: 3.0, targetPH: 5.8, pond: 33, source: 'none', refill: false };      // pond: % of 84 m³ (1.8 m deep)
+    // 6 Oct 2026: the farm's power. 3.24 kWp solar + 5.12 kWh LiFePO4 behind a hybrid inverter; the grid is the backup
+    this.power = { grid: true, solar: true, soc: 0.86, pv: 0, load: 0, battKW: 0, gridKW: 0, level: 'full', cutUntil: null,
+      todayKWh: 9.8, mode: 'solar + grid' };
     this.zones = [0, 1, 2].map((i) => ({ wc: 64 + i, shots: 7 + i % 2, drain: 18 + i * 2, lastML: 180 }));
     this.radSum = 62;
     this.irrHold = 0;
     this.dli = 14.2;
     this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
-    this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, tankLow: false, tankLowLow: false,
+    this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false,
       irrBlocked: false, diseaseFound: false, robotAlarm: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
@@ -129,10 +132,10 @@ export class Sim {
     // ── roots: transpiration dries the slabs
     for (const z of this.zones) z.wc = clamp(z.wc - dt * (0.045 * sun * (0.6 + vpd) + 0.002), 35, 90);
     // ── water
-    if (this.w.supply && this.w.tank < 90) this.w.tank = Math.min(90, this.w.tank + 0.35 * dt);
-    if (!this.w.supply) this.w.tank = Math.max(0, this.w.tank - 0.9 * dt);
+    this.waterTick(dt);
     this.climateControl(dt);
     this.irrigationTick(dt);
+    this.powerTick(dt);
     this.mixTick(dt);
     this.faultChecks(dt);
     this.traps.forEach((tr) => { if (Math.random() < dt * 0.004) tr.wf++; });
@@ -140,12 +143,80 @@ export class Sim {
       this.lastHist = Math.floor(this.t);
       const r = this.readings;
       this.hist.push({ t: this.t, T: r.T, RH: r.RH, vpd: r.vpd, solar: o.solar, Tout: o.T, tank: this.w.tank, mix: this.w.mix,
+        soc: this.power.soc * 100, pv: this.power.pv, pond: this.w.pond,
         w: this.slabWeight, ec: this.w.ec, ph: this.w.ph, flow: this.w.flow, co2: r.CO2 });
       if (this.hist.length > 400) this.hist.shift();
     }
   }
 
   get slabWeight() { return 15.6 + this.zones[2].wc * 0.095; }
+
+  // ── water sources: farm pond first, borewell as backup (6 Oct 2026) ──────────────
+  // The tank's float switch starts a refill below 60 % and stops it at 92 %. The pond pump (Kirloskar Chhotu, ~25 L/min)
+  // fills it while the pond is above its 20 % reserve; below that the PLC switches to the borewell.
+  waterTick(dt) {
+    const w = this.w, a = this.act;
+    if (!w.supply) {                                  // both sources cut (scenario): the tank only drains
+      w.refill = false; w.source = 'none'; a.pondPump = a.borePump = false;
+      w.tank = Math.max(0, w.tank - 0.9 * dt);
+      return;
+    }
+    if (w.tank < 60) w.refill = true;
+    if (w.tank >= 92) w.refill = false;
+    const powered = this.power.level !== 'off' && this.power.level !== 'critical';
+    w.source = !w.refill || !powered ? 'none' : (w.pond > 20 && !this.flags.pondLow ? 'pond' : 'borewell');
+    a.pondPump = w.source === 'pond';
+    a.borePump = w.source === 'borewell';
+    if (w.source !== 'none') {
+      const q = Math.min(dt * 5, 92 - w.tank);         // %/min of the 500 L tank (25 L/min)
+      w.tank += q;
+      if (w.source === 'pond') w.pond = Math.max(0, w.pond - (q * 5) / 840);   // 1 % of the pond = 840 L
+    }
+  }
+
+  pondLitres() { return (this.w.pond / 100) * 84000; }
+  pondLevelM() { return Math.cbrt(1 + 0.75 * (this.w.pond / 100) * 84) - 1; }   // 8 × 8 m top, 2 × 2 m bottom, 3 m deep
+
+  // ── power (6 Oct 2026): solar first, battery second, grid last; load shedding when the battery runs low ───────
+  powerTick(dt) {
+    const P = this.power, a = this.act, A = this.app;
+    if (P.cutUntil !== null && this.t >= P.cutUntil && !P.grid) {
+      P.grid = true; P.cutUntil = null;
+      A.chain('OK');
+      A.log('OK', `Grid power back · battery at ${(P.soc * 100).toFixed(0)} % · all loads restored, the battery recharges from the panels`);
+      A.alarm(null);
+      A.flagComponent('hybrid_inverter', null);
+    }
+    P.pv = P.solar ? 3.24 * (this.out.solar / 1000) * 0.8 : 0;   // kW after inverter, dust and heat losses
+    P.load = 0.08 + 0.42 * a.fans + (a.pad ? 0.37 : 0) + (a.haf ? 0.16 : 0) + (a.pump ? 0.55 : 0) + (a.mixer ? 0.05 : 0) +
+      (a.pondPump ? 0.37 : 0) + (a.borePump ? 1.1 : 0) + (a.fog ? 0.0 : 0);
+    const net = P.pv - P.load;
+    if (net >= 0) { P.battKW = P.soc < 0.999 ? Math.min(net, 2.5) : 0; P.gridKW = 0; }
+    else if (P.grid) { P.battKW = 0; P.gridKW = -net; }
+    else if (P.solar && P.soc > 0.12) { P.battKW = net; P.gridKW = 0; }
+    else { P.battKW = 0; P.gridKW = 0; }
+    P.soc = clamp(P.soc + (P.battKW * dt) / 60 / 5.12, 0, 1);
+    P.todayKWh += (P.pv * dt) / 60;
+    const prev = P.level;
+    P.level = P.grid ? 'full' : !P.solar ? 'off' : P.pv >= P.load || P.soc > 0.3 ? 'full' : P.soc > 0.12 ? 'reserve' : 'critical';
+    P.mode = P.grid ? (P.pv > 0.05 ? 'solar + grid' : 'grid') : !P.solar ? 'NO POWER' : P.pv >= P.load ? 'solar only' : 'solar + battery';
+    a.haf = P.level === 'full';
+    if (prev !== P.level) {
+      if (P.level === 'reserve') {
+        A.chain('PLC');
+        A.log('PLC', `Battery at ${(P.soc * 100).toFixed(0)} % → reserve mode: circulation fans, fogging and robot charging OFF, cooling capped at one fan`);
+        A.toast('Telegram → farmer', `GH-01: still no grid power. Battery ${(P.soc * 100).toFixed(0)} %. Running reduced cooling to keep the reserve.`);
+      } else if (P.level === 'critical') {
+        A.chain('ALARM');
+        A.log('ALARM', 'Battery at 12 % → only the controller, alarms and 4G stay on. Fans and pad OFF.');
+        A.alarm('Battery critical · cooling off');
+        A.sound.alarm();
+      } else if (P.level === 'off') {
+        A.chain('ALARM');
+        A.log('ALARM', 'No grid and no solar/battery: fans, pad, vents and pumps stop. Only the controller (DC UPS) is alive.');
+      } else if (prev === 'reserve' || prev === 'critical') A.log('OK', 'Power sufficient again → full operation');
+    }
+  }
 
   // ── climate: AI proposes, PLC checks ───────────────────────
   climateControl(dt) {
@@ -156,7 +227,10 @@ export class Sim {
     const target = day ? 24 : 18.5;
     const fut = this.weather(this.t + 60).T;
     const p = { vent: a.vent, fans: 0, pad: false, fog: false, fogMode: false, led: false, why: '' };
-    if (day) {
+    // Cooling follows the air temperature, not the sun. Before 7 Oct 2026 sunset meant "night mode": on a heat-wave
+    // evening (37 °C outside) the fans and pad switched off at 17:54 and the house climbed to 35 °C.
+    const cooling = day || a.fans > 0 || Tctl > 26.8;
+    if (cooling) {
       p.vent = clamp(18 + (Tctl - target) * 28, 5, 100);
       // staged cooling: 0 = vents only, 1 = one fan, 2 = both fans, 3 = both fans + wet pad. One stage up above its
       // threshold, one stage down below a lower one, and each stage is held ≥ 5 min (pad: 10 min) so nothing
@@ -164,10 +238,13 @@ export class Sim {
       const pre = fut > 32 && Tctl > 25.5;
       const NAMES = ['vents only', 'one fan', 'both fans', 'both fans + wet pad'];
       const UP = [26.8, 28.2, 28.2], DOWN = [25.6, 27.0, 26.0];
-      const now = a.fans === 2 && a.pad ? 3 : a.fans;
+      const now = a.pad ? 3 : a.fans;
+      // the pad stays on while the outside air is too hot to do without it (what the house would reach on both fans
+      // alone); before 7 Oct 2026 it went off as soon as the pad had cooled the house, so it flipped every 10 min
+      const noPadT = o.T + (o.solar / 1000) * 0.8 / ((1.5 + 110) / 60);
       let stage = now;
       if (stage < 3 && (Tctl > UP[stage] || (stage === 0 && pre)) && (stage < 2 || r.RH < 88)) stage++;
-      else if (stage > 0 && (Tctl < DOWN[stage - 1] || (stage === 3 && r.RH > 92)) && !(stage === 1 && pre)) stage--;
+      else if (stage > 0 && ((Tctl < DOWN[stage - 1] && (stage < 3 || noPadT < UP[2] - 0.5)) || (stage === 3 && r.RH > 92)) && !(stage === 1 && pre)) stage--;
       const minHold = stage === 3 || now === 3 ? 10 : 5;                  // the pad pump gets a longer minimum run
       if (stage !== now && this.t - this.stageSince < minHold && !(stage > now && Tctl >= 30)) stage = now;
       if (stage !== now) this.stageSince = this.t;
@@ -179,9 +256,10 @@ export class Sim {
           : `air ${Tctl.toFixed(1)} °C${stage === 2 && r.RH > 92 ? `, RH ${r.RH.toFixed(0)} %` : ''} → step down to ${NAMES[stage]}`;
       }
       if (p.fans > 0) p.vent = 0;                                       // fan-pad mode needs a closed house
+      else if (!day) p.vent = r.RH > 88 ? 12 : 4;                         // after dark, back to the night vent setting
       const fogWant = a.fogMode ? r.vpd > 1.2 && Tctl > 25 && r.RH < 76 : r.vpd > 1.45 && Tctl > 25.5 && r.RH < 70;
       if (fogWant) { p.fogMode = true; this.fogCycle += dt; p.fog = this.fogCycle % 8 < 2; if (!p.why || p.fans === 0) p.why = `VPD ${r.vpd.toFixed(2)} kPa too dry → fog pulses (2 min of every 8)`; }
-      p.led = this.cloud > 0.55;
+      p.led = false;                                                     // LED toplights removed from GH-01 on 6 Oct 2026
     } else {
       p.vent = r.RH > 88 ? 12 : 4;
       if (r.RH > 88 && !p.why) p.why = `night RH ${r.RH.toFixed(0)} % → crack vents (disease risk)`;
@@ -193,15 +271,23 @@ export class Sim {
     if (p.pad && p.fans === 0) { p.pad = false; plcNote = 'pad needs fans'; }
     if (p.fog && r.RH > 85) { p.fog = false; p.fogMode = false; plcNote = 'fog blocked: RH > 85 %'; }
     // hard-wired thermostat (independent of AI + PLC program, with its own bulb, so a bad climate box can't blind it)
-    if (r.T >= 35) {
+    if (r.T >= 35 || (this.flags.hardThermo && r.T >= 30)) {             // latched: stays on until the air is below 30 °C
       p.fans = 2; p.pad = true; p.vent = 0;
       if (!this.flags.hardThermo) {
         this.flags.hardThermo = true;
-        this.app.log('ALARM', `HARD-WIRED thermostat: ${r.T.toFixed(1)} °C ≥ 35 °C → both fans + pad forced ON`);
-        this.app.alarm('High temperature · hard-wired cooling ON');
+        const dead = this.power.level === 'off' || this.power.level === 'critical';
+        this.app.log('ALARM', dead ? `HARD-WIRED thermostat tripped at ${r.T.toFixed(1)} °C, but there is NO POWER: the fans cannot start`
+          : `HARD-WIRED thermostat: ${r.T.toFixed(1)} °C ≥ 35 °C → both fans + pad forced ON`);
+        this.app.alarm(dead ? 'High temperature · no power for cooling' : 'High temperature · hard-wired cooling ON');
         this.app.sound.alarm();
       }
-    } else if (this.flags.hardThermo && r.T < 33) { this.flags.hardThermo = false; this.app.alarm(null); }
+    } else if (this.flags.hardThermo) { this.flags.hardThermo = false; this.app.alarm(null); }
+    const lvl = this.power.level;
+    // reserve: one fan + the wet pad (0.79 kW) cools far more per watt than two dry fans (0.84 kW). Before 7 Oct 2026
+    // reserve mode dropped the pad and the house cycled up to 35 °C every few minutes.
+    if (lvl === 'reserve') { if (p.fans >= 2) p.pad = true; p.fans = Math.min(p.fans, 1); p.fog = false; p.fogMode = false; }
+    if (lvl === 'critical' || lvl === 'off') { p.fans = 0; p.pad = false; p.fog = false; p.fogMode = false; }
+    if (lvl === 'off') p.vent = a.vent;                                   // the vent motor has no power either
     const changed = p.fans !== a.fans || p.pad !== a.pad || Math.abs(p.vent - a.vent) > 12 || p.led !== a.led || p.fogMode !== !!a.fogMode;
     const sig = `${p.fans}|${p.pad}|${Math.round(p.vent / 12)}|${p.led}|${p.fogMode}`;
     if (changed && sig !== this.lastClimateLog) {
@@ -248,6 +334,7 @@ export class Sim {
       const w = this.w;
       if (this.flags.tankLowLow || w.tank < 8) { this.block('LOW-LOW float open (hard-wired) — pump cannot start'); return; }
       if (this.flags.irrBlocked) { this.block('irrigation blocked until the pump fault is cleared'); return; }
+      if (this.power.level === 'off' || this.power.level === 'critical') { this.block('no power for the pump (grid off, battery reserve)'); return; }
       if (w.mix < 6) { this.block('mix tank empty — waiting for batch'); return; }
       A.log('PLC', `✓ tank ${w.tank.toFixed(0)} % · mix ${w.mix.toFixed(0)} % · EC ${w.ec.toFixed(2)} · pH ${w.ph.toFixed(2)} · pump OK · max 10 min/zone`);
     });
@@ -274,6 +361,10 @@ export class Sim {
     const h = (this.t / 60) % 24;
     if (irr.phase === 'idle' && this.radSum >= 100 && h > 7.5 && h < 17.5 && !this.flags.irrBlocked && !this.flags.tankLowLow &&
       this.realT > (this.irrHold || 0)) this.startIrrigation();
+    if (irr.phase === 'running' && (this.power.level === 'off' || this.power.level === 'critical')) {
+      irr.phase = 'idle'; this.irrHold = this.realT + 45;
+      this.app.log('ACT', 'No power → pump stopped mid-shot; the cycle resumes when power is back');
+    }
     if (irr.phase !== 'running') { a.pump = false; a.valve = [false, false, false]; w.flow = 0; w.pressure = Math.max(0, w.pressure - dt * 3); return; }
     const z = irr.zone;
     a.pump = true;
@@ -414,6 +505,19 @@ export class Sim {
       }
       if (f.disagree && gap < 0.8) { f.disagree = false; this.app.alarm(null); this.app.log('OK', 'Climate boxes agree again'); }
     }
+    if (w.pond < 20 && !f.pondLow) {
+      f.pondLow = true;
+      const days = Math.max(0, (this.pondLitres() - 0.05 * 84000) / 350);
+      this.app.chain('PLC');
+      this.app.log('SENSE', `Pond level ${this.pondLevelM().toFixed(2)} m (${w.pond.toFixed(1)} %, ${Math.round(this.pondLitres()).toLocaleString('en-IN')} L)`);
+      this.app.log('PLC', 'Pond below its 20 % reserve → pond pump OFF, tank refill switched to the borewell');
+      this.app.log('AI', `The reserve covers ≈ ${days.toFixed(0)} days at 350 L/day (drip + wet pad) if the borewell fails too`);
+      this.app.toast('Telegram → farmer', `GH-01: farm pond at 20 %. Using the borewell now; the pond is kept as a ${days.toFixed(0)}-day reserve.`);
+      this.app.log('FARMER', 'Alert sent: pond at reserve level');
+      this.app.pulse('level_pond', 'control_cabinet', 'sense');
+      this.app.focusOn?.('farm_pond');
+    }
+    if (w.pond > 25 && f.pondLow) { f.pondLow = false; this.app.log('OK', 'Pond back above 25 % → refills from the pond again'); }
     if (w.tank < 20 && !f.tankLow) {
       f.tankLow = true;
       this.app.log('SENSE', `Ultrasonic level ${w.tank.toFixed(0)} % (LOW)`);
@@ -516,7 +620,7 @@ export class Sim {
       case 'water':
         this.w.supply = false; this.w.tank = Math.min(this.w.tank, 26);
         this.faults.water = true;
-        A.log('OK', 'Scenario: borewell supply cut — tank is draining');
+        A.log('OK', 'Scenario: both water sources cut (pond pump and borewell) — tank is draining');
         A.toast('Scenario', 'Water supply cut. Watch the level sensor, then the hard-wired float switch.');
         this.later(4, () => this.scenario('irrigate'));
         break;
@@ -540,6 +644,32 @@ export class Sim {
         A.toast('Telegram → farmer', 'GH-01: scout robot stopped in the aisle (bumper). Climate + irrigation unaffected.');
         A.sound.alarm();
         A.focusOn?.('scout_robot');
+        break;
+      case 'power': {
+        const h = (this.t / 60) % 24;
+        const P = this.power;
+        if (h < 14 || h > 17) {                    // after a sunny day the panels have filled the battery by 4 PM
+          this.t = Math.floor(this.t / 1440) * 1440 + 16 * 60; P.soc = 1;
+          A.log('OK', 'Clock moved to 16:00 for the power-cut demo (battery full after a sunny day)');
+        }
+        P.grid = false; P.cutUntil = this.t + 240;
+        A.chain('ALARM');
+        A.log('SENSE', 'Grid 0 V on all three phases: the farm feeder is off (4 hours)');
+        if (P.solar) A.log('ACT', `Hybrid inverter → solar + battery in 20 ms. Nothing stopped. PV ${P.pv.toFixed(1)} kW · load ${P.load.toFixed(1)} kW · battery ${(P.soc * 100).toFixed(0)} %`);
+        A.log('PLC', 'Load-shedding plan armed: below 30 % battery → reduced cooling; below 12 % → controller and alarms only');
+        A.alarm(P.solar ? 'Grid power cut · running on solar + battery' : 'Grid power cut · NO POWER');
+        A.flagComponent('hybrid_inverter', 'fault');
+        A.toast('Scenario', 'Power cut for 4 hours, through sunset: the panels fade and the battery takes over. Watch the battery and the cooling.');
+        A.toast('Telegram → farmer', P.solar ? `GH-01: grid power cut. Running on solar + battery (${(P.soc * 100).toFixed(0)} %). Cooling continues.`
+          : 'GH-01: grid power cut. No backup power: fans and pad are OFF.');
+        A.log('FARMER', 'Alert sent: grid power cut');
+        A.sound.alarm();
+        break;
+      }
+      case 'pond':
+        this.w.pond = 20.3; this.w.tank = Math.min(this.w.tank, 32); this.w.refill = true; this.flags.pondLow = false;
+        A.log('OK', 'Scenario: dry season, 7 weeks without rain — the farm pond is down to 20 %');
+        A.toast('Scenario', 'April, no rain for 7 weeks: the pond is at 20 %. Watch the twin keep the last 20 % as a reserve and switch the tank to the borewell.');
         break;
       case 'reset':
         this.reset();
@@ -583,6 +713,20 @@ export class Sim {
     if (id.startsWith('led_')) return L([['Lights', on(a.led)], ['Power', a.led ? '600 W' : '0 W'], ['DLI today', `${this.dli.toFixed(1)} mol`]], 'solar', 'Solar W/m²');
     if (id.startsWith('canopy_camera')) return L([['Canopy cover', '82 %'], ['Wilting index', (0.05 + r.vpd * 0.03).toFixed(2)], ['Last image', fmtT(this.t - (this.t % 15))]]);
     if (id.startsWith('sticky_trap')) { const tr = this.traps[+id.slice(-1) - 1]; return L([['Whitefly', tr.wf], ['Thrips', tr.th], ['Tuta moth', tr.tu], ['Card age', '9 days']]); }
+    const P = this.power;
+    const kw = (x) => `${(x * 1000).toFixed(0)} W`;
+    if (id === 'solar_array') return L([['PV now', kw(P.pv)], ['Today', `${P.todayKWh.toFixed(1)} kWh`], ['Panels', '6 × 540 W (3.24 kWp)'], ['Facing', 'south, 13°']], 'pv', 'PV kW');
+    if (id === 'hybrid_inverter') return L([['Mode', P.mode], ['Grid', P.grid ? 'ON' : `OFF · back at ${P.cutUntil !== null ? fmtT(P.cutUntil) : '—'}`], ['Load', kw(P.load)], ['PV', kw(P.pv)], ['Battery', P.battKW >= 0 ? `charging ${kw(P.battKW)}` : `supplying ${kw(-P.battKW)}`], ['Grid draw', kw(P.gridKW)]], 'soc', 'Battery %');
+    if (id === 'battery_bank') {
+      const left = P.battKW < 0 ? ((P.soc - 0.12) * 5.12) / -P.battKW : null;
+      return L([['Charge', `${(P.soc * 100).toFixed(0)} %`], ['Energy', `${(P.soc * 5.12).toFixed(2)} kWh of 5.12`], ['Time left', left !== null ? `${Math.floor(left)} h ${Math.round((left % 1) * 60)} min at this load` : '— (not discharging)'], ['Mode', P.level], ['Reserve', '30 % kept for safety loads']], 'soc', 'Battery %');
+    }
+    if (id === 'power_panel') return L([['Grid', P.grid ? '230 V · ON' : 'OFF'], ['Load', kw(P.load)], ['Surge arresters', 'OK']]);
+    if (id === 'farm_pond') return L([['Level', `${this.pondLevelM().toFixed(2)} m of 3.0`], ['Stored', `${(w.pond).toFixed(1)} % · ${Math.round(this.pondLitres()).toLocaleString('en-IN')} L`], ['Reserve', '20 % (kept for emergencies)'], ['Tank refills from', w.source === 'none' ? (this.flags.pondLow ? 'borewell (when needed)' : 'pond (when needed)') : w.source], ['Days of water', `${Math.max(0, (this.pondLitres() - 0.05 * 84000) / 350).toFixed(0)} at 350 L/day`]], 'pond', 'Pond %');
+    if (id === 'level_pond') return L([['Distance to water', `${(1.2 + 3 - this.pondLevelM()).toFixed(2)} m`], ['Level', `${this.pondLevelM().toFixed(2)} m`], ['Node power', 'own solar panel']], 'pond', 'Pond %');
+    if (id === 'pond_pump') return L([['Running', on(a.pondPump)], ['Flow', a.pondPump ? '≈ 25 L/min' : '0'], ['Pond', `${w.pond.toFixed(1)} %`], ['Rule', 'only above the 20 % reserve']], 'pond', 'Pond %');
+    if (id === 'borewell') return L([['Running', on(a.borePump)], ['Role', 'backup source'], ['Tank refill', w.refill ? 'in progress' : 'idle']], 'tank', 'Tank %');
+    if (id === 'source_valves') return L([['Pond valve', on(a.pondPump)], ['Borewell valve', on(a.borePump)]]);
     if (id === 'control_cabinet') return L([['Mode', 'AUTO'], ['Safety PLC', 'OK · 10 ms cycle'], ['Edge computer', 'OK · AI advising'], ['Alarms', this.app.alarmText || 'none'], ['UPS', '100 %']]);
     if (id.startsWith('esp32')) return L([['Wi-Fi', '−61 dBm'], ['Last message', '4 s ago'], ['Uptime', '312 h']]);
     if (id === 'farmer_tablet') return L([['Screen', 'Overview'], ['Alerts', this.app.alarmText ? 1 : 0]]);
