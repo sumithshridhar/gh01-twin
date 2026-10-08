@@ -27,15 +27,19 @@ export class Sim {
     this.out = {};
     this.inn = { T: 24.4, e: 2.15, CO2: 432 };
     this.box2off = 0.3;
-    this.act = { vent: 35, fans: 0, pad: false, fog: false, haf: true, led: false, pump: false, valve: [false, false, false],
+    this.act = { vent: 35, fans: 0, pad: false, padPump: false, padWet: 0, fog: false, haf: true, led: false, pump: false, valve: [false, false, false],
       dosing: [false, false, false], mixer: false };
-    this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, todayL: 212, dosedML: 780, supply: true,
+    this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, todayL: 49, dosedML: 780, supply: true,
       targetEC: 3.0, targetPH: 5.8, pond: 33, source: 'none', refill: false };      // pond: % of 84 m³ (1.8 m deep)
     // 6 Oct 2026: the farm's power. 3.24 kWp solar + 5.12 kWh LiFePO4 behind a hybrid inverter; the grid is the backup
     this.power = { grid: true, solar: true, soc: 0.86, pv: 0, load: 0, battKW: 0, gridKW: 0, level: 'full', cutUntil: null,
       todayKWh: 9.8, mode: 'solar + grid' };
-    this.zones = [0, 1, 2].map((i) => ({ wc: 64 + i, shots: 7 + i % 2, drain: 18 + i * 2, lastML: 180 }));
+    // 8 Oct 2026: each zone's slab keeps a real water + salt balance (per plant: 1/3 of a 100 × 20 × 10 cm coco slab = 6.7 L).
+    // Before, "drain" was a counter that only ever went up (stuck at 40 %) and "shots today" never reset.
+    this.zones = [0, 1, 2].map((i) => ({ wc: 64 + i, ec: 3.6, shots: 5, givenL: 0.9, drainL: 0.2, drainSalt: 0.2 * 3.8, drain: 22, lastML: 180 }));
     this.radSum = 62;
+    this.shotJ = 100;                 // J/cm² of sunlight per shot; the AI steers it to keep the drain at 20–30 %
+    this.drainSteer = true;
     this.irrHold = 0;
     this.dli = 14.2;
     this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
@@ -106,17 +110,24 @@ export class Sim {
   step(dt) {
     this.t += dt;
     this.noise = this.noise.map(() => (Math.random() - 0.5) * 0.08);     // live sensors flicker by a few hundredths
-    if (this.t >= 1440) { this.t -= 1440; this.day++; this.dli = 0; }
+    if (this.t >= 1440) {                         // midnight: the "today" counters start again
+      this.t -= 1440; this.day++; this.dli = 0;
+      for (const z of this.zones) Object.assign(z, { shots: 0, givenL: 0, drainL: 0, drainSalt: 0, drain: 0 });
+      this.w.todayL = 0; this.w.dosedML = 0; this.power.todayKWh = 0;
+    }
     const o = this.out = this.weather(this.t);
     const a = this.act, i = this.inn;
     // ── climate physics (exponential integration → stable at any speed)
     const fansOn = a.fans;
     const ach = 1.5 + (a.vent / 100) * 25 + fansOn * 55;                          // air changes per hour
     const k = ach / 60;
-    const padOn = a.pad && fansOn > 0;
-    const Tsup = padOn ? o.T - 0.8 * (o.T - wetBulb(o.T, o.RH)) : o.T;
+    // the pad soaks in ~3 min when its pump runs and dries in ~8 min when it stops, so cycling the pump gives part-cooling
+    a.padWet = a.padPump ? a.padWet + (1 - a.padWet) * (1 - Math.exp(-dt / 3)) : a.padWet * Math.exp(-dt / 8);
+    const pw = fansOn > 0 ? a.padWet : 0;
+    const TsupFull = o.T - 0.8 * (o.T - wetBulb(o.T, o.RH));
+    const Tsup = o.T - pw * (o.T - TsupFull);
     const eOut = (o.RH / 100) * es(o.T);
-    const eSup = padOn ? Math.min(es(Tsup) * 0.9, eOut + 1.4) : eOut;
+    const eSup = eOut + pw * (Math.min(es(TsupFull) * 0.9, eOut + 1.4) - eOut);
     const vpd = Math.max(0, es(i.T) - i.e);
     const sun = o.solar / 1000;
     const gain = sun * 0.8 - sun * 0.3 * (0.4 + vpd) * 0.6 - (a.fog ? 0.12 : 0) + (a.led ? 0.03 : 0);
@@ -129,8 +140,14 @@ export class Sim {
     i.CO2 = co2Eq + (i.CO2 - co2Eq) * Math.exp(-k * dt);
     this.dli += (o.solar * 2.02 * 0.72 * 60 * dt) / 1e6;
     this.radSum += (o.solar * 60 * dt) / 1e4;                                     // J/cm²
-    // ── roots: transpiration dries the slabs
-    for (const z of this.zones) z.wc = clamp(z.wc - dt * (0.045 * sun * (0.6 + vpd) + 0.002), 35, 90);
+    // ── roots: transpiration dries the slabs. The roots take up water with fewer salts than the feed (≈ 0.8 × feed EC),
+    // so what they leave behind concentrates in the slab; only drain water carries it out.
+    for (const z of this.zones) {
+      const up = Math.min(dt * (0.045 * sun * (0.6 + vpd) + 0.002), z.wc - 35);        // % of the slab volume
+      const salt = z.ec * z.wc - up * Math.min(z.ec, 0.8 * this.w.ec);
+      z.wc -= up;
+      z.ec = salt / z.wc;
+    }
     // ── water
     this.waterTick(dt);
     this.climateControl(dt);
@@ -188,7 +205,7 @@ export class Sim {
       A.flagComponent('hybrid_inverter', null);
     }
     P.pv = P.solar ? 3.24 * (this.out.solar / 1000) * 0.8 : 0;   // kW after inverter, dust and heat losses
-    P.load = 0.08 + 0.42 * a.fans + (a.pad ? 0.37 : 0) + (a.haf ? 0.16 : 0) + (a.pump ? 0.55 : 0) + (a.mixer ? 0.05 : 0) +
+    P.load = 0.08 + 0.42 * a.fans + (a.padPump ? 0.37 : 0) + (a.haf ? 0.16 : 0) + (a.pump ? 0.55 : 0) + (a.mixer ? 0.05 : 0) +
       (a.pondPump ? 0.37 : 0) + (a.borePump ? 1.1 : 0) + (a.fog ? 0.0 : 0);
     const net = P.pv - P.load;
     if (net >= 0) { P.battKW = P.soc < 0.999 ? Math.min(net, 2.5) : 0; P.gridKW = 0; }
@@ -311,15 +328,21 @@ export class Sim {
       }
     }
     Object.assign(a, { vent: p.vent, fans: p.fans, pad: p.pad, fog: p.fog, fogMode: p.fogMode, led: p.led });
+    // pad mode cycles the pad pump to hold the air near 85 % RH: a pad left running all afternoon held 90 % RH and a VPD
+    // of 0.3 kPa (7 Oct 2026), too damp for tomatoes. Air above 27.5 °C (or the hard-wired thermostat) keeps it running.
+    if (!a.pad || a.fans === 0) a.padPump = false;
+    else if (this.flags.hardThermo || Tctl > 26 || r.RH < 83) a.padPump = true;
+    else if (r.RH > 86) a.padPump = false;
   }
 
   // ── irrigation ─────────────────────────────────────────────
   startIrrigation(forced = false) {
     if (this.irr.phase !== 'idle') return;
     const r = this.readings;
-    const drain = this.zones.reduce((s, z) => s + z.drain, 0) / 3;
-    const vol = Math.round((150 + 60 * clamp(r.vpd - 0.8, 0, 1) + (drain < 20 ? 20 : 0)) / 10) * 10;
-    this.irr = { ...this.irr, phase: 'deciding', vol, zone: 0, retry: this.irr.retry || 0 };
+    const drain = this.drainToday();
+    const vol = Math.round((150 + 60 * clamp(r.vpd - 0.8, 0, 1)) / 10) * 10;
+    // valve time per zone = the shot: 18 drippers × 2 L/h = 0.6 L/min, so 150 mL per plant takes 4.5 min
+    this.irr = { ...this.irr, phase: 'deciding', vol, dur: (vol * 18) / 600, zone: 0, retry: this.irr.retry || 0 };
     const A = this.app;
     const id = (this.irrCycle = (this.irrCycle || 0) + 1);   // steps of an older request must not act on this one
     const later = (s, fn) => this.later(s, () => { if (this.irrCycle === id) fn(); });
@@ -327,7 +350,7 @@ export class Sim {
     A.log('SENSE', `${forced ? 'Manual request · ' : ''}radiation sum ${this.radSum.toFixed(0)} J/cm² · slab 3 weight ${this.slabWeight.toFixed(2)} kg · VPD ${r.vpd.toFixed(2)}`);
     ['par_sensor', 'slab_scale', 'weather_station', 'substrate_sensor', 'drain_meter'].forEach((s) => A.pulse(s, 'control_cabinet', 'sense'));
     later(1.0, () => A.chain('DATA'));
-    later(1.6, () => { A.chain('AI'); A.log('AI', `Irrigate zones 1→3: ${vol} mL per plant (VPD ${r.vpd.toFixed(2)} kPa, drain ${drain.toFixed(0)} % → target 25 %)`); });
+    later(1.6, () => { A.chain('AI'); A.log('AI', `Irrigate zones 1→3: ${vol} mL per plant (VPD ${r.vpd.toFixed(2)} kPa) · drain today ${drain.toFixed(0)} %, target 20–30 % · a shot every ${this.shotJ} J/cm²`); });
     later(2.4, () => A.chain('DECIDE'));
     later(3.0, () => {
       A.chain('PLC');
@@ -359,7 +382,7 @@ export class Sim {
   irrigationTick(dt) {
     const irr = this.irr, a = this.act, w = this.w;
     const h = (this.t / 60) % 24;
-    if (irr.phase === 'idle' && this.radSum >= 100 && h > 7.5 && h < 17.5 && !this.flags.irrBlocked && !this.flags.tankLowLow &&
+    if (irr.phase === 'idle' && this.radSum >= this.shotJ && h > 7.5 && h < 17.5 && !this.flags.irrBlocked && !this.flags.tankLowLow &&
       this.realT > (this.irrHold || 0)) this.startIrrigation();
     if (irr.phase === 'running' && (this.power.level === 'off' || this.power.level === 'critical')) {
       irr.phase = 'idle'; this.irrHold = this.realT + 45;
@@ -372,6 +395,7 @@ export class Sim {
     const pumpOK = !this.faults.pump && !this.flags.tankLowLow;
     w.flow = pumpOK ? 0.6 * (1 - (this.faults.filter ? 0.5 : 0)) : 0;           // L/min at the meter (18 drippers × 2 L/h)
     w.pressure = pumpOK ? 2.1 : 0;
+    if (w.flow > 0) this.waterSlab(this.zones[z], (w.flow / 18) * dt);
     const realSince = this.realT - irr.startReal;
     if (!irr.confirmed && realSince > 2.2) {
       if (w.flow > 0) {
@@ -394,8 +418,6 @@ export class Sim {
     w.mix = Math.max(0, w.mix - (w.flow * dt) / 2.0);
     w.todayL += w.flow * dt;
     const zz = this.zones[z];
-    zz.wc = Math.min(90, zz.wc + dt * 0.75);
-    if (zz.wc > 70) zz.drain = Math.min(40, zz.drain + dt * 0.3);
     if (this.t - irr.t0 >= irr.dur) {
       zz.shots++; zz.lastML = irr.vol;
       if (z < 2) {
@@ -404,10 +426,46 @@ export class Sim {
         this.app.pulse('control_cabinet', `zone_valve_${z + 2}`, 'cmd');
       } else {
         irr.phase = 'idle'; this.radSum = 0; irr.retry = 0;
-        this.app.log('OK', `Cycle complete · 54 plants × ${irr.vol} mL · slab 3 now ${this.slabWeight.toFixed(2)} kg · next by radiation sum`);
+        this.app.log('OK', `Cycle complete · 54 plants × ${irr.vol} mL · drain today ${this.drainToday().toFixed(0)} % · slab EC ${this.slabEC().toFixed(1)}`);
+        this.steerDrain();
         this.app.chain(null);
         this.app.sound.chime();
       }
+    }
+  }
+
+  // one minute of drippers on a zone's slab: a little runs straight through (channeling), the rest wets the coco up to
+  // container capacity, and anything above that drains, carrying the slab's salts with it
+  waterSlab(z, litres) {
+    const SLAB_L = 6.67, FC = 72, BYPASS = 0.05;
+    const pct = (litres / SLAB_L) * 100;
+    const inPct = pct * (1 - BYPASS);
+    const wc = z.wc + inPct, salt = z.ec * z.wc + inPct * this.w.ec;
+    const over = Math.max(0, wc - FC);
+    z.ec = salt / wc;
+    z.wc = wc - over;
+    const drainL = ((over + pct * BYPASS) / 100) * SLAB_L;
+    z.givenL += litres;
+    z.drainL += drainL;
+    z.drainSalt += (over / 100) * SLAB_L * z.ec + litres * BYPASS * this.w.ec;
+    z.drain = (100 * z.drainL) / z.givenL;
+  }
+
+  drainToday() { const g = this.zones.reduce((s, z) => s + z.givenL, 0); return g > 0 ? (100 * this.zones.reduce((s, z) => s + z.drainL, 0)) / g : 0; }
+  drainEC() { const d = this.zones.reduce((s, z) => s + z.drainL, 0); return d > 0 ? this.zones.reduce((s, z) => s + z.drainSalt, 0) / d : this.w.ec; }
+  slabEC() { return this.zones.reduce((s, z) => s + z.ec, 0) / 3; }
+
+  // the growers' rule: drain below 20 % means salts are building up around the roots → water more often; above 30 % is
+  // waste → less often. Steered by the sunlight per shot, after the first 3 shots of the day (a dry morning slab drains nothing).
+  steerDrain() {
+    if (!this.drainSteer || this.zones[0].givenL < 0.45) return;
+    const d = this.drainToday(), ec = this.slabEC(), [lo, hi] = ec > 5 ? [25, 35] : [20, 30];   // salty slab: wash it a bit more
+    const old = this.shotJ;
+    if (d < lo) this.shotJ = Math.max(60, this.shotJ - 10);
+    else if (d > hi) this.shotJ = Math.min(160, this.shotJ + 10);
+    if (this.shotJ !== old) {
+      this.app.chain('AI');
+      this.app.log('AI', `Drain today ${d.toFixed(0)} % (target ${lo}–${hi} %), slab EC ${ec.toFixed(1)} → a shot every ${this.shotJ} J/cm² (was ${old})`);
     }
   }
 
@@ -701,12 +759,12 @@ export class Sim {
     if (id === 'flow_meter') return L([['Flow', `${w.flow.toFixed(2)} L/min`], ['Today', `${w.todayL.toFixed(0)} L`], ['Pulses/L', '450']], 'flow', 'Flow L/min');
     if (id === 'pressure_tx' || id === 'pressure_gauge') return L([['Pressure', `${w.pressure.toFixed(1)} bar`], ['Range', '0–10 bar']], 'flow', 'Flow L/min');
     if (id === 'disc_filter') return L([['Δp', `${(0.15 + (a.pump ? 0.05 : 0)).toFixed(2)} bar`], ['Clean in', '9 days']]);
-    if (id.startsWith('zone_valve') || id.startsWith('row_')) { const n = +id.slice(-1) - 1; return L([['Valve', on(a.valve[n])], ['Slab water', `${z(n).wc.toFixed(0)} %`], ['Shots today', z(n).shots], ['Last shot', `${z(n).lastML} mL/plant`], ['Drain', `${z(n).drain.toFixed(0)} %`]]); }
-    if (id === 'drain_meter') return L([['Drain today', `${(this.zones.reduce((s, q) => s + q.drain, 0) / 3).toFixed(0)} %`], ['Drain EC', `${(w.ec + 0.9).toFixed(1)} mS/cm`], ['Target', '20–30 %']]);
+    if (id.startsWith('zone_valve') || id.startsWith('row_')) { const n = +id.slice(-1) - 1; return L([['Valve', on(a.valve[n])], ['Slab water', `${z(n).wc.toFixed(0)} %`], ['Shots today', z(n).shots], ['Last shot', `${z(n).lastML} mL/plant`], ['Drain today', `${z(n).drain.toFixed(0)} %`], ['Slab EC', `${z(n).ec.toFixed(1)} mS/cm`]]); }
+    if (id === 'drain_meter') return L([['Drain today', `${this.drainToday().toFixed(0)} %`], ['Drain EC', `${this.drainEC().toFixed(1)} mS/cm`], ['Target', '20–30 %'], ['A shot every', `${this.shotJ} J/cm² of sun`]]);
     if (id === 'slab_scale') return L([['Weight', `${this.slabWeight.toFixed(2)} kg`], ['Uptake', `${(o.solar / 1000 * 9).toFixed(1)} mL/min`], ['Water content', `${z(2).wc.toFixed(0)} %`]], 'w', 'Slab kg');
-    if (id === 'substrate_sensor') return L([['Water content', `${z(2).wc.toFixed(0)} %`], ['Pore EC', `${(w.ec + 1.1).toFixed(1)} mS/cm`], ['Root temp', `${(r.T - 2.5).toFixed(1)} °C`]]);
+    if (id === 'substrate_sensor') return L([['Water content', `${z(2).wc.toFixed(0)} %`], ['Pore EC', `${z(2).ec.toFixed(1)} mS/cm`], ['Root temp', `${(r.T - 2.5).toFixed(1)} °C`]]);
     if (id.startsWith('exhaust_fan')) return L([['Stage', a.fans >= +id.slice(-1) ? 'ON' : 'OFF'], ['Speed', a.fans >= +id.slice(-1) ? '620 rpm' : '0'], ['Air changes', `${(1.5 + a.vent / 4 + a.fans * 55).toFixed(0)} /h`]], 'T', 'Air °C');
-    if (id === 'cooling_pad') return L([['Pad pump', on(a.pad)], ['Air cooled by', a.pad ? `${(0.8 * (o.T - wetBulb(o.T, o.RH))).toFixed(1)} °C` : '—'], ['Outside RH', `${o.RH.toFixed(0)} %`]], 'T', 'Air °C');
+    if (id === 'cooling_pad') return L([['Pad mode', on(a.pad)], ['Pad pump', on(a.padPump)], ['Pad wet', `${(a.padWet * 100).toFixed(0)} %`], ['Air cooled by', a.padWet > 0.05 && a.fans ? `${(0.8 * a.padWet * (o.T - wetBulb(o.T, o.RH))).toFixed(1)} °C` : '—'], ['Inside RH', `${this.readings.RH.toFixed(0)} %`]], 'T', 'Air °C');
     if (id.startsWith('haf_fan')) return L([['Running', on(a.haf)], ['Air speed', '0.5 m/s']]);
     if (id === 'vent_drive' || id === 'greenhouse_structure') return L([['Vent', `${a.vent.toFixed(0)} %`], ['Inside', `${r.T.toFixed(1)} °C`], ['Outside', `${o.T.toFixed(1)} °C`], ['Wind', `${o.wind.toFixed(1)} m/s`]], 'T', 'Air °C');
     if (id === 'fog_pump' || id === 'fog_line') return L([['Fog', on(a.fog)], ['Line pressure', a.fog ? '70 bar' : '0 bar'], ['VPD', `${r.vpd.toFixed(2)} kPa`]], 'vpd', 'VPD kPa');
