@@ -43,7 +43,7 @@ export class Sim {
     this.irrHold = 0;
     this.dli = 14.2;
     this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
-    this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false,
+    this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false, refillFail: false, plantsDry: false,
       irrBlocked: false, diseaseFound: false, robotAlarm: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
@@ -55,6 +55,8 @@ export class Sim {
     this.robot = { x: 4.6, y: -0.8, lift: 1.1, wp: 3, route: this.makeRoute(), phase: 'move', timer: 0, scanning: false,
       battery: 76, scanned: 31, pollinated: 118, stuck: false, override: null, puff: 0 };
     this.traps = [{ wf: 23, th: 4, tu: 1 }, { wf: 17, th: 6, tu: 0 }, { wf: 9, th: 2, tu: 1 }];
+    this.tankHist = [];
+    this.refillDueSince = null;
     this.queue = [];
     this.app.alarm(null);
     this.app.clearMarkers?.();
@@ -150,6 +152,10 @@ export class Sim {
     }
     // ── water
     this.waterTick(dt);
+    if (Math.floor(this.t) !== this.tankMin) {                     // the tank level once a minute, last 10 minutes
+      this.tankMin = Math.floor(this.t);
+      this.tankHist = [...(this.tankHist || []), this.w.tank].slice(-11);
+    }
     this.climateControl(dt);
     this.irrigationTick(dt);
     this.powerTick(dt);
@@ -340,7 +346,7 @@ export class Sim {
     if (this.irr.phase !== 'idle') return;
     const r = this.readings;
     const drain = this.drainToday();
-    const vol = Math.round((150 + 60 * clamp(r.vpd - 0.8, 0, 1)) / 10) * 10;
+    const vol = Math.round(((150 + 60 * clamp(r.vpd - 0.8, 0, 1)) * (this.flags.tankLow ? 0.6 : 1)) / 10) * 10;   // ration: 60 % shots
     // valve time per zone = the shot: 18 drippers × 2 L/h = 0.6 L/min, so 150 mL per plant takes 4.5 min
     this.irr = { ...this.irr, phase: 'deciding', vol, dur: (vol * 18) / 600, zone: 0, retry: this.irr.retry || 0 };
     const A = this.app;
@@ -388,6 +394,7 @@ export class Sim {
       irr.phase = 'idle'; this.irrHold = this.realT + 45;
       this.app.log('ACT', 'No power → pump stopped mid-shot; the cycle resumes when power is back');
     }
+    if (irr.phase === 'running' && this.flags.tankLowLow) this.stopForNoWater();
     if (irr.phase !== 'running') { a.pump = false; a.valve = [false, false, false]; w.flow = 0; w.pressure = Math.max(0, w.pressure - dt * 3); return; }
     const z = irr.zone;
     a.pump = true;
@@ -470,6 +477,7 @@ export class Sim {
   }
 
   pumpFailed() {
+    if (this.flags.tankLowLow) { this.stopForNoWater(); return; }    // no flow because there's no water: not the pump
     const irr = this.irr;
     irr.phase = 'idle';
     this.irrHold = this.realT + 45;   // only the one explicit retry below, no automatic re-request
@@ -576,23 +584,78 @@ export class Sim {
       this.app.focusOn?.('farm_pond');
     }
     if (w.pond > 25 && f.pondLow) { f.pondLow = false; this.app.log('OK', 'Pond back above 25 % → refills from the pond again'); }
+    // Water: say what is actually wrong, and how long the plants have. Before 9 Oct 2026 an empty tank came out as either
+    // "check pump / power / priming" (the no-flow check fired after the float switch had cut the pump) or as no message at
+    // all for the rest of the day, while the slabs dried out. "Ration mode" was logged but never applied.
+    const fall = this.tankFall();                                   // %/min the tank has dropped over the last 10 min
+    if (w.tank < 60) this.refillDueSince ??= this.t; else this.refillDueSince = null;
+    const due = this.refillDueSince !== null ? (this.t - this.refillDueSince + 1440) % 1440 : 0;
+    if (due >= 8 && fall > 0.3 && !f.refillFail) {                  // a refill has been due for 8 min, yet the level keeps dropping
+      f.refillFail = true;
+      const left = w.tank / fall;
+      this.app.chain('ALARM');
+      this.app.log('SENSE', `Tank ${w.tank.toFixed(0)} % and falling ${fall.toFixed(1)} %/min although a refill is due`);
+      this.app.log('AI', `Refill not reaching the tank: pond pump and borewell are not delivering. ≈ ${Math.round(left)} min of water left`);
+      this.app.toast('Telegram → farmer', `GH-01: the water tank is emptying (${w.tank.toFixed(0)} %) and the refill isn't working. Check the pond pump, the borewell and their power. About ${Math.round(left)} min of water left.`);
+      this.app.log('FARMER', 'Alert sent: water supply not delivering');
+      this.app.pulse('level_water_tank', 'control_cabinet', 'sense');
+    }
     if (w.tank < 20 && !f.tankLow) {
       f.tankLow = true;
       this.app.log('SENSE', `Ultrasonic level ${w.tank.toFixed(0)} % (LOW)`);
-      this.app.log('AI', 'Ration mode: shorter shots, skip one cycle until refilled');
-      this.app.toast('Telegram → farmer', `GH-01: fresh-water tank at ${w.tank.toFixed(0)} %. Supply looks off.`);
+      this.app.log('AI', 'Ration mode: shots cut to 60 % until the tank refills');
       this.app.pulse('level_water_tank', 'control_cabinet', 'sense');
     }
     if (w.tank < 8 && !f.tankLowLow) {
       f.tankLowLow = true;
+      if (this.irr.phase === 'running') this.stopForNoWater();
       this.app.chain('ALARM');
       this.app.log('ALARM', 'LOW-LOW float switch OPEN → pump contactor coil cut in hardware (no software involved)');
       this.app.alarm('Water shortage · pumps locked out');
       this.app.flagComponent('water_tank', 'fault');
+      const h = this.hoursToStress();
+      this.app.toast('Telegram → farmer', `GH-01: water tank EMPTY. Irrigation stopped: the pump is fine, there is no water. The slabs hold about ${h.toFixed(1)} h of water at this sun.`);
+      this.app.log('FARMER', 'Alert sent: tank empty (not a pump fault)');
       this.app.sound.alarm();
       this.app.focusOn?.('water_tank');
     }
-    if (w.tank > 25 && f.tankLowLow) { f.tankLowLow = false; f.tankLow = false; this.app.alarm(null); this.app.flagComponent('water_tank', null); this.app.log('OK', 'Tank refilled → float closed, pumps released'); }
+    const wc = this.zones.reduce((s, z) => s + z.wc, 0) / 3;
+    if (f.tankLowLow && wc < 55 && !f.plantsDry) {
+      f.plantsDry = true;
+      this.app.chain('ALARM');
+      this.app.log('ALARM', `Slabs at ${wc.toFixed(0)} % water (normal 65–72 %) and no water to give`);
+      this.app.toast('Telegram → farmer', `GH-01: plants are drying. Slab water ${wc.toFixed(0)} % (normal 65–72 %). Wilting in about ${this.hoursToStress(45).toFixed(1)} h unless water is restored.`);
+      this.app.log('FARMER', 'Alert sent: plants drying');
+    }
+    if (w.tank > 25 && f.tankLowLow) {
+      Object.assign(f, { tankLowLow: false, tankLow: false, refillFail: false, plantsDry: false });
+      this.app.alarm(null); this.app.flagComponent('water_tank', null); this.app.log('OK', 'Tank refilled → float closed, pumps released');
+    }
+  }
+
+  // the tank's drop over the last 10 minutes, in % per minute (positive = falling)
+  tankFall() {
+    const h = this.tankHist;
+    return h && h.length > 5 ? (h[0] - h[h.length - 1]) / (h.length - 1) : 0;
+  }
+
+  // hours until the slabs dry to `to` % at the current uptake (sunlight × dryness of the air), for the farmer's message
+  hoursToStress(to = 50) {
+    const r = this.readings, sun = this.out.solar / 1000;
+    const rate = Math.max(0.01, 0.045 * sun * (0.6 + r.vpd) + 0.002);       // % of the slab per minute
+    const wc = this.zones.reduce((s, z) => s + z.wc, 0) / 3;
+    return Math.max(0, wc - to) / rate / 60;
+  }
+
+  // the float switch cut the pump mid-shot: stop the cycle as a water shortage (not a pump fault) and don't count it as watered
+  stopForNoWater() {
+    const irr = this.irr;
+    this.app.log('ACT', `Float switch cut the pump in zone ${irr.zone + 1}: cycle stopped${irr.zone < 2 ? `, zone${irr.zone < 1 ? 's 2–3' : ' 3'} not watered` : ''}`);
+    irr.phase = 'idle';
+    irr.noFlowSince = null;
+    this.irrHold = this.realT + 45;
+    this.act.pump = false;
+    this.act.valve = [false, false, false];
   }
 
   // ── robot patrol (real time) ───────────────────────────────
@@ -676,7 +739,7 @@ export class Sim {
         break;
       }
       case 'water':
-        this.w.supply = false; this.w.tank = Math.min(this.w.tank, 26);
+        this.w.supply = false; this.w.tank = Math.min(this.w.tank, 26); this.tankHist = [];   // the demo's jump isn't a trend
         this.faults.water = true;
         A.log('OK', 'Scenario: both water sources cut (pond pump and borewell) — tank is draining');
         A.toast('Scenario', 'Water supply cut. Watch the level sensor, then the hard-wired float switch.');
