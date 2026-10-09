@@ -46,6 +46,9 @@ export class Sim {
     this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false, refillFail: false, plantsDry: false,
       irrBlocked: false, diseaseFound: false, robotAlarm: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
+    // 9 Oct 2026: leaf wetness. wetMin = unbroken minutes of wet leaves, dryMin = minutes since they were last wet,
+    // warned = advisory sent, cycle = the 10-min night vent opening is running, cycleAt = when it was last asked for
+    this.leaf = { wet: false, wetMin: 0, dryMin: 0, leafT: 24, dew: 15, warned: false, cycle: false, cycleAt: null };
     this.mixing = { phase: 'idle', t0: 0 };
     this.fogCycle = 0;
     this.stageSince = -1e9;
@@ -156,6 +159,7 @@ export class Sim {
       this.tankMin = Math.floor(this.t);
       this.tankHist = [...(this.tankHist || []), this.w.tank].slice(-11);
     }
+    this.leafTick(dt);
     this.climateControl(dt);
     this.irrigationTick(dt);
     this.powerTick(dt);
@@ -286,6 +290,7 @@ export class Sim {
     } else {
       p.vent = r.RH > 88 ? 12 : 4;
       if (r.RH > 88 && !p.why) p.why = `night RH ${r.RH.toFixed(0)} % → crack vents (disease risk)`;
+      if (this.leaf.cycle) { p.vent = 30; p.why = `leaves wet ${(this.leaf.wetMin / 60).toFixed(1)} h → 10-min vent cycle`; }   // leafTick() asked, the PLC limits below still apply
     }
     if (this.flags.diseaseFound && r.vpd < 0.55) { p.vent = Math.max(p.vent, 20); p.why = p.why || 'disease plan: keep VPD ≥ 0.55 kPa'; }
     // PLC limits
@@ -339,6 +344,45 @@ export class Sim {
     if (!a.pad || a.fans === 0) a.padPump = false;
     else if (this.flags.hardThermo || Tctl > 26 || r.RH < 83) a.padPump = true;
     else if (r.RH > 86) a.padPump = false;
+  }
+
+  // ── leaf wetness and disease risk (9 Oct 2026) ─────────────────────────────────────────────────────────────
+  // Before 9 Oct 2026 the house sat at 95-99 % RH for about 6 h every night and nothing said so. On a clear night a leaf
+  // radiates heat to the sky and sits ~1 °C below the air; once it is within 0.5 °C of the dew point (RH ≳ 92 %) it films
+  // with water. Grey mould, leaf mould and early blight need hours of that to infect, so the twin counts unbroken wet
+  // hours (a dry spell of 30 min starts the count again) and warns at 4 h, a usual grower's warning level.
+  // The AI only advises: a 10-min vent opening once an hour while it lasts. The PLC's own limits still decide it:
+  // wind and no-power limits in climateControl(), and here the crop's night minimum, since cold air in would chill the plants.
+  leafTick(dt) {
+    const L = this.leaf, A = this.app, r = this.readings, o = this.out;
+    const x = Math.log(this.inn.e / 0.6108), dew = (237.3 * x) / (17.27 - x);       // dew point, °C
+    const leafT = r.T - (o.solar > 40 ? 0 : 1.0);
+    const wet = r.RH > 90 && leafT - dew < 0.5;
+    Object.assign(L, { wet, leafT, dew });
+    if (wet) { L.wetMin += dt; L.dryMin = 0; }
+    else if ((L.dryMin += dt) >= 30 && L.wetMin > 0) {
+      if (L.warned) A.log('OK', `Leaves dry again after ${(L.wetMin / 60).toFixed(1)} h of wetness · RH ${r.RH.toFixed(0)} %`);
+      Object.assign(L, { wetMin: 0, warned: false, cycle: false, cycleAt: null });
+    }
+    if (L.wetMin >= 240 && !L.warned) {
+      L.warned = true;
+      const h = L.wetMin / 60;
+      A.chain('AI');
+      A.log('SENSE', `Leaves wet ${h.toFixed(1)} h in a row: air ${r.T.toFixed(1)} °C, RH ${r.RH.toFixed(0)} %, dew point ${dew.toFixed(1)} °C, leaf ≈ ${leafT.toFixed(1)} °C`);
+      A.log('AI', 'Disease risk up (grey mould, leaf mould, early blight). Plan: ask the PLC for vents at 30 % for 10 min every hour while it lasts; ask the farmer to check the lower leaves at first light');
+      A.toast('Telegram → farmer', `GH-01: the leaves have been wet for ${h.toFixed(0)} h (humidity ${r.RH.toFixed(0)} %). That raises the risk of grey mould and leaf mould. Nothing is broken. The controller opens the vents for 10 min every hour when it is safe to. Please check the lower leaves at first light.`);
+      A.log('FARMER', 'Advisory sent: leaf wetness / disease risk (Telegram)');
+      ['climate_box_1', 'climate_box_2'].forEach((s) => A.pulse(s, 'control_cabinet', 'sense'));
+    }
+    const since = (t0) => (this.t - t0 + 1440) % 1440;
+    if (L.warned && wet && !L.cycle && (L.cycleAt === null || since(L.cycleAt) >= 60)) {
+      L.cycleAt = this.t;                                 // asked at most once an hour, whatever the PLC answers
+      if (o.T < 15) {
+        A.log('AI', 'Vent cycle proposed: 30 % for 10 min to swap the damp air');
+        A.log('PLC', `✗ declined: outside ${o.T.toFixed(1)} °C is below the crop's 15 °C night minimum → vents stay as they are`);
+      } else L.cycle = true;                              // climateControl() carries it out and logs it
+    }
+    if (L.cycle && since(L.cycleAt) >= 10) L.cycle = false;
   }
 
   // ── irrigation ─────────────────────────────────────────────
@@ -808,7 +852,8 @@ export class Sim {
     if (id.startsWith('climate_box')) {
       const bad = this.flags.boxBad[+id.slice(-1) - 1];
       return L([['Air temp', `${(id.endsWith('1') ? r.box1 : r.box2).toFixed(1)} °C`], ['Humidity', `${r.RH.toFixed(0)} %`],
-        ['VPD', `${r.vpd.toFixed(2)} kPa`], ['CO₂', `${r.CO2.toFixed(0)} ppm`], ['Fan', bad ? '— (stuck)' : '4 200 rpm'], ['Status', bad ? 'BAD · ignored' : 'OK']], 'T', 'Air temperature °C');
+        ['VPD', `${r.vpd.toFixed(2)} kPa`], ['CO₂', `${r.CO2.toFixed(0)} ppm`], ['Leaves', this.leaf.wet ? `WET · ${(this.leaf.wetMin / 60).toFixed(1)} h in a row` : 'dry'],
+        ['Fan', bad ? '— (stuck)' : '4 200 rpm'], ['Status', bad ? 'BAD · ignored' : 'OK']], 'T', 'Air temperature °C');
     }
     if (id === 'par_sensor') return L([['PPFD', `${r.ppfd.toFixed(0)} µmol/m²/s`], ['DLI today', `${this.dli.toFixed(1)} mol`], ['Target', '20–30 mol']], 'solar', 'Solar W/m²');
     if (id === 'weather_station') return L([['Outside', `${o.T.toFixed(1)} °C`], ['RH', `${o.RH.toFixed(0)} %`], ['Sun', `${o.solar.toFixed(0)} W/m²`], ['Wind', `${o.wind.toFixed(1)} m/s`], ['Rain', 'no']], 'Tout', 'Outside °C');
