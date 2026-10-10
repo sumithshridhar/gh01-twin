@@ -29,7 +29,7 @@ export class Sim {
     this.box2off = 0.3;
     this.act = { vent: 35, fans: 0, pad: false, padPump: false, padWet: 0, fog: false, haf: true, led: false, pump: false, valve: [false, false, false],
       dosing: [false, false, false], mixer: false };
-    this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, todayL: 49, dosedML: 780, supply: true,
+    this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, dp: 0, todayL: 49, dosedML: 780, supply: true,
       targetEC: 3.0, targetPH: 5.8, pond: 33, source: 'none', refill: false };      // pond: % of 84 m³ (1.8 m deep)
     // 6 Oct 2026: the farm's power. 3.24 kWp solar + 5.12 kWh LiFePO4 behind a hybrid inverter; the grid is the backup
     this.power = { grid: true, solar: true, soc: 0.86, pv: 0, load: 0, battKW: 0, gridKW: 0, level: 'full', cutUntil: null,
@@ -44,7 +44,7 @@ export class Sim {
     this.dli = 14.2;
     this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
     this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false, refillFail: false, plantsDry: false,
-      irrBlocked: false, diseaseFound: false, robotAlarm: false };
+      irrBlocked: false, diseaseFound: false, robotAlarm: false, lowFlow: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
     this.fogCycle = 0;
@@ -348,7 +348,7 @@ export class Sim {
     const drain = this.drainToday();
     const vol = Math.round(((150 + 60 * clamp(r.vpd - 0.8, 0, 1)) * (this.flags.tankLow ? 0.6 : 1)) / 10) * 10;   // ration: 60 % shots
     // valve time per zone = the shot: 18 drippers × 2 L/h = 0.6 L/min, so 150 mL per plant takes 4.5 min
-    this.irr = { ...this.irr, phase: 'deciding', vol, dur: (vol * 18) / 600, zone: 0, retry: this.irr.retry || 0 };
+    this.irr = { ...this.irr, phase: 'deciding', vol, dur: (vol * 18) / 600, zone: 0, retry: this.irr.retry || 0, zoneL: 0, gotML: 0 };
     const A = this.app;
     const id = (this.irrCycle = (this.irrCycle || 0) + 1);   // steps of an older request must not act on this one
     const later = (s, fn) => this.later(s, () => { if (this.irrCycle === id) fn(); });
@@ -401,8 +401,9 @@ export class Sim {
     a.valve = [z === 0, z === 1, z === 2];
     const pumpOK = !this.faults.pump && !this.flags.tankLowLow;
     w.flow = pumpOK ? 0.6 * (1 - (this.faults.filter ? 0.5 : 0)) : 0;           // L/min at the meter (18 drippers × 2 L/h)
-    w.pressure = pumpOK ? 2.1 : 0;
-    if (w.flow > 0) this.waterSlab(this.zones[z], (w.flow / 18) * dt);
+    w.pressure = pumpOK ? (this.faults.filter ? 1.45 : 2.1) : 0;
+    w.dp = pumpOK ? (this.faults.filter ? 0.72 : 0.17) : 0;                       // pressure drop across the disc filter, bar
+    if (w.flow > 0) { this.waterSlab(this.zones[z], (w.flow / 18) * dt); irr.zoneL = (irr.zoneL || 0) + w.flow * dt; }
     const realSince = this.realT - irr.startReal;
     if (!irr.confirmed && realSince > 2.2) {
       if (w.flow > 0) {
@@ -424,16 +425,38 @@ export class Sim {
     } else irr.noFlowSince = null;
     w.mix = Math.max(0, w.mix - (w.flow * dt) / 2.0);
     w.todayL += w.flow * dt;
+    // Low flow: the meter is the truth. Before 10 Oct 2026 each zone's valve stayed open for a fixed time (4.5 min for
+    // 150 mL at the drippers' rated 0.6 L/min), so a clogged disc filter halved every shot while the log kept saying
+    // "54 plants × 150 mL": 2 days, drain 25 → 5 %, slabs 72 → 54 % water, no alarm.
+    if (w.flow > 0 && w.flow < 0.8 * 0.6) {             // no flow at all is the pump / water check above, not the filter
+      irr.lowSince ??= this.t;
+      if (!this.flags.lowFlow && this.t - irr.lowSince >= 1) {
+        this.flags.lowFlow = true;
+        this.app.chain('ALARM');
+        this.app.log('SENSE', `Flow ${w.flow.toFixed(2)} L/min, expected 0.60 (18 drippers × 2 L/h) · filter Δp ${w.dp.toFixed(2)} bar (clean 0.17)`);
+        this.app.log('AI', 'Low flow + high filter Δp → disc filter clogging. Shots now end on the flow meter, not the clock (max 10 min/zone)');
+        this.app.alarm('Low flow · disc filter clogging');
+        this.app.flagComponent('disc_filter', 'fault');
+        this.app.toast('Telegram → farmer', `GH-01: the disc filter is clogging. Flow ${w.flow.toFixed(2)} L/min instead of 0.60. Shots now run longer to make up for it. Please clean the filter today (Δp ${w.dp.toFixed(2)} bar, clean 0.17).`);
+        this.app.log('FARMER', 'Alert sent: filter clogging');
+        this.app.sound.alarm();
+        this.app.focusOn?.('disc_filter');
+      }
+    } else irr.lowSince = null;
     const zz = this.zones[z];
-    if (this.t - irr.t0 >= irr.dur) {
-      zz.shots++; zz.lastML = irr.vol;
+    const goalL = (irr.vol * 18) / 1000;                                         // the zone's shot, counted by the meter
+    if (irr.zoneL >= goalL - 1e-6 || this.t - irr.t0 >= 10) {
+      const gotML = Math.round((irr.zoneL / 18) * 1000);
+      irr.gotML = (irr.gotML || 0) + gotML;
+      zz.shots++; zz.lastML = gotML;
+      if (gotML < irr.vol * 0.9) this.app.log('ALARM', `Zone ${z + 1}: only ${gotML} of ${irr.vol} mL per plant in the 10-min limit`);
       if (z < 2) {
-        irr.zone++; irr.t0 = this.t; irr.confirmed = false; irr.startReal = this.realT;
-        this.app.log('ACT', `Zone ${z + 1} done (${irr.vol} mL/plant) → valve ${z + 2} OPEN`);
+        irr.zone++; irr.t0 = this.t; irr.confirmed = false; irr.startReal = this.realT; irr.zoneL = 0;
+        this.app.log('ACT', `Zone ${z + 1} done (${gotML} mL/plant by the meter) → valve ${z + 2} OPEN`);
         this.app.pulse('control_cabinet', `zone_valve_${z + 2}`, 'cmd');
       } else {
         irr.phase = 'idle'; this.radSum = 0; irr.retry = 0;
-        this.app.log('OK', `Cycle complete · 54 plants × ${irr.vol} mL · drain today ${this.drainToday().toFixed(0)} % · slab EC ${this.slabEC().toFixed(1)}`);
+        this.app.log('OK', `Cycle complete · 54 plants × ${Math.round(irr.gotML / 3)} mL (flow meter) · drain today ${this.drainToday().toFixed(0)} % · slab EC ${this.slabEC().toFixed(1)}`);
         this.steerDrain();
         this.app.chain(null);
         this.app.sound.chime();
@@ -504,6 +527,7 @@ export class Sim {
   startIrrigationDirect() {
     this.irrCycle = (this.irrCycle || 0) + 1;
     this.irr.phase = 'running'; this.irr.zone = 0; this.irr.t0 = this.t; this.irr.confirmed = false; this.irr.startReal = this.realT;
+    this.irr.zoneL = 0; this.irr.gotML = 0;
     this.app.log('ACT', 'Retry: pump ON · valve 1 OPEN');
     this.app.pulse('control_cabinet', 'irrigation_pump', 'cmd');
   }
@@ -787,6 +811,12 @@ export class Sim {
         A.sound.alarm();
         break;
       }
+      case 'filter':
+        this.faults.filter = true;
+        A.log('OK', 'Scenario: the disc filter clogs (silt from the pond): half the water gets through');
+        A.toast('Scenario', 'The irrigation filter clogs. Watch the flow meter: the shot now ends when the plants got their water, not when a timer runs out.');
+        this.scenario('irrigate');
+        break;
       case 'pond':
         this.w.pond = 20.3; this.w.tank = Math.min(this.w.tank, 32); this.w.refill = true; this.flags.pondLow = false;
         A.log('OK', 'Scenario: dry season, 7 weeks without rain — the farm pond is down to 20 %');
@@ -821,7 +851,7 @@ export class Sim {
     if (id === 'irrigation_pump') return L([['Running', on(a.pump)], ['Pressure', `${w.pressure.toFixed(1)} bar`], ['Current', a.pump ? (this.faults.pump ? '0.3 A (dry)' : '3.6 A') : '0 A'], ['Status', this.flags.irrBlocked ? 'FAULT · blocked' : this.faults.pump ? 'fault (hidden)' : 'OK']], 'flow', 'Flow L/min');
     if (id === 'flow_meter') return L([['Flow', `${w.flow.toFixed(2)} L/min`], ['Today', `${w.todayL.toFixed(0)} L`], ['Pulses/L', '450']], 'flow', 'Flow L/min');
     if (id === 'pressure_tx' || id === 'pressure_gauge') return L([['Pressure', `${w.pressure.toFixed(1)} bar`], ['Range', '0–10 bar']], 'flow', 'Flow L/min');
-    if (id === 'disc_filter') return L([['Δp', `${(0.15 + (a.pump ? 0.05 : 0)).toFixed(2)} bar`], ['Clean in', '9 days']]);
+    if (id === 'disc_filter') return L([['Δp', a.pump ? `${w.dp.toFixed(2)} bar` : '— (pump off)'], ['Status', this.faults.filter ? 'CLOGGING · clean today' : 'clean (flush < 0.5 bar)'], ['Flow', `${w.flow.toFixed(2)} L/min`]]);
     if (id.startsWith('zone_valve') || id.startsWith('row_')) { const n = +id.slice(-1) - 1; return L([['Valve', on(a.valve[n])], ['Slab water', `${z(n).wc.toFixed(0)} %`], ['Shots today', z(n).shots], ['Last shot', `${z(n).lastML} mL/plant`], ['Drain today', `${z(n).drain.toFixed(0)} %`], ['Slab EC', `${z(n).ec.toFixed(1)} mS/cm`]]); }
     if (id === 'drain_meter') return L([['Drain today', `${this.drainToday().toFixed(0)} %`], ['Drain EC', `${this.drainEC().toFixed(1)} mS/cm`], ['Target', '20–30 %'], ['A shot every', `${this.shotJ} J/cm² of sun`]]);
     if (id === 'slab_scale') return L([['Weight', `${this.slabWeight.toFixed(2)} kg`], ['Uptake', `${(o.solar / 1000 * 9).toFixed(1)} mL/min`], ['Water content', `${z(2).wc.toFixed(0)} %`]], 'w', 'Slab kg');

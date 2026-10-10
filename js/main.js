@@ -952,6 +952,7 @@ $('#scen').addEventListener('click', (e) => {
   if (b.dataset.s === 'disease') flyTo(B(2.4, 0.9, 1.9), B(4.3, 1.2, 1.0), 1.4);
   if (b.dataset.s === 'power') flyTo(B(-6.5, 14.0, 4.5), B(3.6, 7.0, 1.5), 1.6);
   if (b.dataset.s === 'pond') flyTo(B(-3.2, -3.6, 3.4), B(5.2, -10.8, -1.2), 1.6);
+  if (b.dataset.s === 'filter') flyTo(B(2.9, 0.9, 2.2), B(0.8, -1.6, 0.9), 1.6);
 });
 $('#helpbtn').addEventListener('click', () => { $('#help').hidden = false; });
 $('#help-ok').addEventListener('click', () => { $('#help').hidden = true; });
