@@ -30,7 +30,7 @@ export class Sim {
     this.act = { vent: 35, fans: 0, pad: false, padPump: false, padWet: 0, fog: false, haf: true, led: false, pump: false, valve: [false, false, false],
       dosing: [false, false, false], mixer: false };
     this.w = { tank: 72, mix: 58, ec: 3.02, ph: 5.84, flow: 0, pressure: 0, dp: 0, todayL: 49, dosedML: 780, supply: true,
-      targetEC: 3.0, targetPH: 5.8, pond: 33, source: 'none', refill: false };      // pond: % of 84 m³ (1.8 m deep)
+      targetEC: 3.0, targetPH: 5.8, ecA: 1.36, stock: { A: 64, B: 64, acid: 71 }, pond: 33, source: 'none', refill: false };      // pond: % of 84 m³ (1.8 m deep)
     // 6 Oct 2026: the farm's power. 3.24 kWp solar + 5.12 kWh LiFePO4 behind a hybrid inverter; the grid is the backup
     this.power = { grid: true, solar: true, soc: 0.86, pv: 0, load: 0, battKW: 0, gridKW: 0, level: 'full', cutUntil: null,
       todayKWh: 9.8, mode: 'solar + grid' };
@@ -42,9 +42,9 @@ export class Sim {
     this.drainSteer = true;
     this.irrHold = 0;
     this.dli = 14.2;
-    this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false };
+    this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false, stockA: false, bore: false };
     this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false, refillFail: false, plantsDry: false,
-      irrBlocked: false, diseaseFound: false, robotAlarm: false, lowFlow: false };
+      irrBlocked: false, diseaseFound: false, robotAlarm: false, lowFlow: false, stockLow: false, stockHold: false, boreFail: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
     this.mixing = { phase: 'idle', t0: 0 };
     this.fogCycle = 0;
@@ -187,14 +187,36 @@ export class Sim {
     if (w.tank < 60) w.refill = true;
     if (w.tank >= 92) w.refill = false;
     const powered = this.power.level !== 'off' && this.power.level !== 'critical';
-    w.source = !w.refill || !powered ? 'none' : (w.pond > 20 && !this.flags.pondLow ? 'pond' : 'borewell');
+    // the pond's last 20 % is a reserve for when the borewell fails. Before 10 Oct 2026 nothing could ever release it: with
+    // the pond at 20 % and a dry borewell the tank ran down for days (17 % by day 6, slabs drying) beside 16,800 L of pond water.
+    const reserve = this.flags.boreFail && w.pond > 5;                   // the pond pump's intake sits at 5 %
+    w.source = !w.refill || !powered ? 'none' : (w.pond > 20 && !this.flags.pondLow) || reserve ? 'pond' : this.flags.boreFail ? 'none' : 'borewell';
     a.pondPump = w.source === 'pond';
     a.borePump = w.source === 'borewell';
-    if (w.source !== 'none') {
+    const boreDry = w.source === 'borewell' && this.faults.bore;          // a dry borewell: the pump runs, no water comes
+    // the borewell pump has run 5 min and the tank hasn't risen → it isn't delivering: use the pond reserve, tell the farmer
+    this.boreRun = boreDry ? (this.boreRun || 0) + dt : 0;
+    if (this.boreRun >= 5 && !this.flags.boreFail) this.boreFailed();
+    if (w.source !== 'none' && !boreDry) {
       const q = Math.min(dt * 5, 92 - w.tank);         // %/min of the 500 L tank (25 L/min)
       w.tank += q;
       if (w.source === 'pond') w.pond = Math.max(0, w.pond - (q * 5) / 840);   // 1 % of the pond = 840 L
     }
+  }
+
+  boreFailed() {
+    const w = this.w, A = this.app;
+    this.flags.boreFail = true;
+    const days = Math.max(0, (this.pondLitres() - 0.05 * 84000) / 350);
+    A.chain('ALARM');
+    A.log('SENSE', `Borewell pump on for 5 min, tank still ${w.tank.toFixed(0)} % → the borewell isn't giving water`);
+    A.log('PLC', `Refill switched to the pond reserve (${Math.round(this.pondLitres()).toLocaleString('en-IN')} L, down to the 5 % intake)`);
+    A.alarm('Borewell dry · using the pond reserve');
+    A.flagComponent('borewell', 'fault');
+    A.toast('Telegram → farmer', `GH-01: the borewell isn't giving water. I switched to the pond reserve: about ${days.toFixed(0)} days at 350 L/day. Please check the borewell (dry, pump or power).`);
+    A.log('FARMER', 'Alert sent: borewell dry, running on the pond reserve');
+    A.sound.alarm();
+    A.focusOn?.('farm_pond');
   }
 
   pondLitres() { return (this.w.pond / 100) * 84000; }
@@ -532,6 +554,9 @@ export class Sim {
     this.app.pulse('control_cabinet', 'irrigation_pump', 'cmd');
   }
 
+  // calcium in the feed as a share of the recipe's: tank A's part of the EC over half of the salts' EC
+  get feedCa() { const w = this.w; return Math.max(0, Math.min(1.2, w.ecA / Math.max(0.05, (w.ec - 0.3) / 2))); }
+
   // ── fertigation batch ──────────────────────────────────────
   mixTick(dt) {
     const w = this.w, m = this.mixing, a = this.act;
@@ -542,22 +567,63 @@ export class Sim {
     }
     if (m.phase === 'fill') {
       const q = Math.min(dt * 12, 60 - w.mix);
-      w.mix += q; w.tank = Math.max(0, w.tank - q * 0.4); w.ec = w.ec * 0.97 + 0.3 * 0.03;
-      if (w.mix >= 59) { m.phase = 'dose'; m.t0 = this.t; this.app.log('ACT', 'Dosing pumps A + B + acid ON · mixer ON'); ['dosing_pump_A', 'dosing_pump_B', 'dosing_pump_acid'].forEach((d) => this.app.pulse('control_cabinet', d, 'cmd')); }
+      // fresh water (EC 0.3, no calcium) dilutes what's left of the last batch
+      w.ec = (w.ec * w.mix + 0.3 * q) / Math.max(1e-6, w.mix + q); w.ecA *= w.mix / Math.max(1e-6, w.mix + q);
+      w.mix += q; w.tank = Math.max(0, w.tank - q * 0.4);
+      if (w.mix >= 59 && this.flags.stockHold) {
+        m.phase = 'mix'; m.t0 = this.t;
+        this.app.log('PLC', 'Stock tank on hold → water-only batch: no dosing, so B is never fed without A');
+      } else if (w.mix >= 59) {
+        m.phase = 'dose'; m.t0 = this.t; m.ec0 = m.ecExp = w.ec;
+        this.app.log('ACT', 'Dosing pumps A + B + acid ON · mixer ON');
+        ['dosing_pump_A', 'dosing_pump_B', 'dosing_pump_acid'].forEach((d) => this.app.pulse('control_cabinet', d, 'cmd'));
+      }
     }
     a.dosing = [m.phase === 'dose', m.phase === 'dose', m.phase === 'dose' && w.ph > w.targetPH];
     a.mixer = m.phase === 'dose' || m.phase === 'mix';
     if (m.phase === 'dose') {
-      w.ec += (w.targetEC + 0.02 - w.ec) * Math.min(1, dt * 0.25);
+      // A (calcium nitrate + iron) and B (the rest) are dosed together and each carries about half the feed's EC. With tank A
+      // empty, pump A only moves air: B alone still pushes the EC to target, just half as fast, and the batch has no calcium.
+      const aOK = !this.faults.stockA;
+      const dEC = (w.targetEC + 0.02 - w.ec) * Math.min(1, dt * (aOK ? 0.25 : 0.125));
+      w.ec += dEC;
+      if (aOK) w.ecA += dEC / 2;                                     // the EC that came from tank A (its calcium)
       w.ph += (w.targetPH - w.ph) * Math.min(1, dt * 0.25);
       w.dosedML += dt * 40;
-      if (Math.abs(w.ec - w.targetEC) < 0.05) { m.phase = 'mix'; m.t0 = this.t; }
+      if (aOK) w.stock.A = Math.max(0, w.stock.A - dt * 0.0333);         // 20 mL/min from a 60 L tank
+      w.stock.B = Math.max(0, w.stock.B - dt * 0.0333);
+      // the dosing check: A + B should lift the EC this fast (the same curve, run alongside). Before 10 Oct 2026 nothing
+      // compared them: with tank A empty, B alone reached EC 2.96 in every batch and the feed had no calcium for 2 days.
+      m.ecExp += (w.targetEC + 0.02 - m.ecExp) * Math.min(1, dt * 0.25);
+      if (this.t - m.t0 >= 3 && w.ec - m.ec0 < 0.65 * (m.ecExp - m.ec0) && !this.flags.stockHold) {
+        this.stockFault(`the EC rose ${(w.ec - m.ec0).toFixed(2)} in ${Math.round(this.t - m.t0)} min, expected ${(m.ecExp - m.ec0).toFixed(2)}`);
+        m.phase = 'mix'; m.t0 = this.t;
+      } else if (Math.abs(w.ec - w.targetEC) < 0.05) { m.phase = 'mix'; m.t0 = this.t; }
     }
     if (m.phase === 'mix' && this.t - m.t0 > 4) {
       m.phase = 'idle';
-      this.app.log('OK', `Batch ready: EC ${w.ec.toFixed(2)} · pH ${w.ph.toFixed(2)} (flow-cell confirmed)`);
+      this.app.log('OK', `Batch ready: EC ${w.ec.toFixed(2)} · pH ${w.ph.toFixed(2)} · stock A ${w.stock.A.toFixed(0)} % · B ${w.stock.B.toFixed(0)} % (flow-cell confirmed)`);
       this.app.pulse('sensor_flow_cell', 'control_cabinet', 'sense');
     }
+  }
+
+  // a stock tank isn't delivering: stop dosing (B alone would read EC 3.0 with no calcium) and tell the farmer
+  stockFault(why) {
+    const w = this.w, f = this.flags;
+    f.stockHold = true;
+    const which = w.stock.A < 2 ? 'A (calcium nitrate)' : w.stock.B < 2 ? 'B' : 'A or B';
+    this.app.chain('ALARM');
+    this.app.log('SENSE', `Stock A ${w.stock.A.toFixed(0)} % · B ${w.stock.B.toFixed(0)} % · ${why}`);
+    this.app.log('AI', `Stock tank ${which} is not delivering. Dosing stopped: B without A would hit EC 3.0 with no calcium`);
+    const empty = w.stock.A < 2 || w.stock.B < 2;
+    this.app.alarm(empty ? `Stock tank ${which.split(' ')[0]} empty · dosing stopped` : 'Dosing not delivering · dosing stopped');
+    this.app.flagComponent(w.stock.B < 2 && w.stock.A >= 2 ? 'stock_B' : 'stock_A', 'fault');
+    this.app.toast('Telegram → farmer', empty
+      ? `GH-01: stock tank ${which} is empty. I stopped dosing, so the plants won't get a feed without calcium. They get plain water until you refill it.`
+      : `GH-01: the dosing isn't working: the EC rose half as fast as it should, so stock A or B isn't getting in (air in a dosing pump or a blocked suction?). I stopped dosing; the plants get plain water until it's fixed.`);
+    this.app.log('FARMER', 'Alert sent: stock tank empty');
+    this.app.sound.alarm();
+    this.app.focusOn?.('stock_A');
   }
 
   // ── fault detection ────────────────────────────────────────
@@ -594,6 +660,18 @@ export class Sim {
         this.app.toast('Telegram → farmer', `GH-01: climate sensors 1 and 2 differ by ${gap.toFixed(1)} °C. Cooling on the warmer one. Please check both.`);
       }
       if (f.disagree && gap < 0.8) { f.disagree = false; this.app.alarm(null); this.app.log('OK', 'Climate boxes agree again'); }
+    }
+    // stock tanks: a level sensor on A and B (before 10 Oct 2026 the panel showed a fixed "64 %")
+    const low = Math.min(w.stock.A, w.stock.B);
+    if (low < 15 && low >= 2 && !f.stockLow) {
+      f.stockLow = true;
+      this.app.log('SENSE', `Stock tank ${w.stock.A < w.stock.B ? 'A' : 'B'} at ${low.toFixed(0)} %`);
+      this.app.toast('Telegram → farmer', `GH-01: stock tank ${w.stock.A < w.stock.B ? 'A' : 'B'} at ${low.toFixed(0)} %, about ${Math.floor(low / 0.8)} batches left. Please mix a refill this week.`);
+    }
+    if (low < 2 && !f.stockHold) this.stockFault('level sensor');
+    if (f.stockHold && w.stock.A >= 10 && w.stock.B >= 10 && !this.faults.stockA) {
+      f.stockHold = false; f.stockLow = false; this.app.alarm(null); this.app.flagComponent('stock_A', null);
+      this.app.log('OK', 'Stock tanks refilled → dosing back on');
     }
     if (w.pond < 20 && !f.pondLow) {
       f.pondLow = true;
@@ -811,6 +889,17 @@ export class Sim {
         A.sound.alarm();
         break;
       }
+      case 'bore':
+        this.w.pond = Math.min(this.w.pond, 19.9); this.flags.pondLow = true; this.faults.bore = true;
+        this.w.tank = Math.min(this.w.tank, 58); this.w.refill = true; this.boreRun = 0;
+        A.log('OK', 'Scenario: April, the pond is down to its 20 % reserve and the borewell runs dry');
+        A.toast('Scenario', 'Dry season: the pond is at its 20 % reserve and the borewell has run dry. Watch the twin find out and open the reserve.');
+        break;
+      case 'stockA':
+        this.faults.stockA = true; this.w.stock.A = 0; this.w.mix = Math.min(this.w.mix, 31);
+        A.log('OK', 'Scenario: stock tank A (calcium nitrate) runs empty');
+        A.toast('Scenario', 'Stock tank A runs dry. Pump B alone could still reach EC 3.0, with no calcium. Watch the twin catch it.');
+        break;
       case 'filter':
         this.faults.filter = true;
         A.log('OK', 'Scenario: the disc filter clogs (silt from the pond): half the water gets through');
@@ -844,7 +933,7 @@ export class Sim {
     if (id === 'weather_station') return L([['Outside', `${o.T.toFixed(1)} °C`], ['RH', `${o.RH.toFixed(0)} %`], ['Sun', `${o.solar.toFixed(0)} W/m²`], ['Wind', `${o.wind.toFixed(1)} m/s`], ['Rain', 'no']], 'Tout', 'Outside °C');
     if (id.includes('water_tank')) return L([['Level', `${w.tank.toFixed(0)} %`], ['Volume', `${(w.tank * 5).toFixed(0)} L`], ['Supply', w.supply ? 'ON (float valve)' : 'CUT'], ['LOW-LOW float', this.flags.tankLowLow ? 'OPEN → pumps locked' : 'closed']], 'tank', 'Tank %');
     if (id.includes('mix_tank')) return L([['Level', `${w.mix.toFixed(0)} %`], ['EC', `${w.ec.toFixed(2)} mS/cm`], ['pH', w.ph.toFixed(2)], ['Mixer', on(a.mixer)], ['Batch', this.mixing.phase]], 'mix', 'Mix tank %');
-    if (id.startsWith('stock')) return L([['Level', id.endsWith('acid') ? '71 %' : '64 %'], ['Dosed today', `${Math.round(w.dosedML / 3)} mL`]]);
+    if (id.startsWith('stock')) { const k = id.endsWith('acid') ? 'acid' : id.endsWith('B') ? 'B' : 'A'; return L([['Level', `${w.stock[k].toFixed(0)} %`], ['Holds', '60 L'], ['Feed calcium', `${Math.round(this.feedCa * 100)} % of recipe`], ['Dosing', this.flags.stockHold ? 'ON HOLD' : 'OK']]); }
     if (id.startsWith('dosing_pump')) { const k = ['A', 'B', 'acid'].indexOf(id.split('_').pop()); return L([['Running', on(a.dosing[k])], ['Dosed today', `${Math.round(w.dosedML / 3)} mL`], ['Calibration', '1.60 mL/rev']]); }
     if (id === 'ph_probe') return L([['pH', w.ph.toFixed(2)], ['Target', '5.5–6.0'], ['Last calibration', '2026-09-01']], 'ph', 'pH');
     if (id === 'ec_probe' || id === 'sensor_flow_cell') return L([['EC', `${w.ec.toFixed(2)} mS/cm`], ['pH', w.ph.toFixed(2)], ['Temp', '23.4 °C']], 'ec', 'EC mS/cm');
