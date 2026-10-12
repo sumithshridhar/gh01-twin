@@ -1,6 +1,12 @@
 // Sky, sun, day/night lighting, ground and a simple farm backdrop.
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+// 12 Oct 2026, video capture: a photographed sky (Poly Haven "kloofendal_48d_partly_cloudy_puresky", CC0) instead of the
+// procedural one. Its sun sits at u = 0.595 of the panorama, 48° up; the horizon haze is #9a9ead.
+const REAL_SKY = { bg: 'assets/sky/kloofendal_48d_8k.jpg', hdr: 'assets/sky/kloofendal_48d_2k.hdr', sunU: 0.595, horizon: 0x9a9ead,
+  envI: 1.6, bgI: 1.35, exp: 1.15, sunI: 1, hemiI: 1 };      // tuned 12 Oct: as bright as v1 (Y 120-180), 1.3-2x the colour
 
 // Blender (x, y, z-up) → three.js (x, y-up, z)
 export const B = (x, y, z) => new THREE.Vector3(x, z, -y);
@@ -25,6 +31,44 @@ function noiseTexture(size, base, spread, grain, repeat) {
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   return t;
+}
+
+
+// 12 Oct 2026: tree crowns that read as foliage, not faceted gems: a lumpy smooth crown (vertex noise), clumps of light and
+// shade, a leafy normal and a frayed silhouette (fragments near the edge drop out by noise). `sparse` frays more.
+const FOL_NOISE = `
+  float fh(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+  float fn(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(fh(i), fh(i + vec3(1,0,0)), f.x), mix(fh(i + vec3(0,1,0)), fh(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(fh(i + vec3(0,0,1)), fh(i + vec3(1,0,1)), f.x), mix(fh(i + vec3(0,1,1)), fh(i + vec3(1,1,1)), f.x), f.y), f.z); }
+  float fbm(vec3 p) { return 0.55 * fn(p) + 0.3 * fn(p * 2.3) + 0.15 * fn(p * 5.1); }`;
+export function foliageMaterial(color, { sparse = 0.0, lump = 0.28, scale = 1.0, holes = 0.0 } = {}) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.92 });
+  // three caches programs by onBeforeCompile's source, which is the same for every variant: key them by their settings
+  m.customProgramCacheKey = () => `foliage-${sparse}-${lump}-${scale}-${holes}`;
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('void main() {', `varying vec3 vFolPos;${FOL_NOISE}
+void main() {`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        transformed += normal * (fbm(position * 2.2 + 3.0) - 0.5) * ${(lump * 2).toFixed(3)};`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 fw = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          fw = instanceMatrix * fw;
+        #endif
+        vFolPos = (modelMatrix * fw).xyz;`);
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `varying vec3 vFolPos;${FOL_NOISE}
+void main() {`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        diffuseColor.rgb *= mix(0.5, 1.22, fbm(vFolPos * ${(1.4 * scale).toFixed(2)})) * mix(0.72, 1.12, fn(vFolPos * ${(15 * scale).toFixed(1)}))
+          * mix(vec3(0.92, 1.0, 0.86), vec3(1.05, 1.0, 0.9), fn(vFolPos * 0.2));`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+        ${holes > 0 ? `if (fbm(vFolPos * ${(3.4 * scale).toFixed(2)} + 7.0) < ${holes.toFixed(2)}) discard;` : ''}
+        if (rim > ${(0.5 - 0.25 * sparse).toFixed(2)} && fbm(vFolPos * ${(3.2 * scale).toFixed(2)}) < (rim - ${(0.5 - 0.25 * sparse).toFixed(2)}) * ${(1.8 + 1.5 * sparse).toFixed(2)}) discard;
+        normal = normalize(normal + 0.6 * (vec3(fn(vFolPos * ${(2.6 * scale).toFixed(2)}), fn(vFolPos * ${(2.6 * scale).toFixed(2)} + 17.0), fn(vFolPos * ${(2.6 * scale).toFixed(2)} + 31.0)) - 0.5));`);
+  };
+  return m;
 }
 
 export class World {
@@ -62,6 +106,24 @@ export class World {
     this.grass = noiseTexture(256, [86, 104, 58], [60, 70, 40], 0.55, 90);
     scene.fog = new THREE.Fog(0xbfd4e6, 90, 520);
     this.addBackdrop();
+    this.envTime = -999;
+  }
+
+  // the photographed sky for the background, the reflections and the ambient light; the panorama is turned so its sun
+  // stands where the sim's sun is (setTime keeps it turned as the day goes on)
+  async useRealSky() {
+    const hdrLoader = new RGBELoader().setDataType(THREE.HalfFloatType);
+    const [bg, hdr] = await Promise.all([new THREE.TextureLoader().loadAsync(REAL_SKY.bg), hdrLoader.loadAsync(REAL_SKY.hdr)]);
+    bg.mapping = THREE.EquirectangularReflectionMapping;
+    bg.colorSpace = THREE.SRGBColorSpace;
+    bg.anisotropy = 8;
+    hdr.mapping = THREE.EquirectangularReflectionMapping;
+    const env = this.pmrem.fromEquirectangular(hdr).texture;
+    hdr.dispose();
+    this.realSky = { bg, env, thetaSun: (REAL_SKY.sunU - 0.5) * 2 * Math.PI };
+    this.sky.visible = false;
+    this.scene.background = bg;
+    this.scene.environment = env;
     this.envTime = -999;
   }
 
@@ -109,7 +171,7 @@ export class World {
       const i = x * 13 + y * 7;
       mul.push([P(x + (rnd(i) - 0.5) * 0.2, y, 0.75), new THREE.Vector3(0.7 + rnd(i + 1) * 0.25, 0.75 + rnd(i + 2) * 0.3, 0.7), rnd(i + 3) * 3]);
     }
-    inst(new THREE.IcosahedronGeometry(1, 0), mat(0x5d8f2e), mul);
+    inst(new THREE.IcosahedronGeometry(1, 3), foliageMaterial(0x5d8f2e, { lump: 0.2, scale: 2.5 }), mul);
     // ragi: a few darker clumps for texture
     const rg = [];
     for (let k = 0; k < 500; k++) rg.push([P(-10 + rnd(k) * 68, -34 - rnd(k + 9) * 60, 0.25), new THREE.Vector3(0.6, 0.35, 0.6), 0]);
@@ -122,7 +184,7 @@ export class World {
       mc.push([P(x + rnd(i + 1) * 2, y + rnd(i + 2) * 2, 4.0 * sc), new THREE.Vector3(4.2 * sc, 3.2 * sc, 4.2 * sc), rnd(i) * 3]);
     }
     inst(new THREE.CylinderGeometry(0.25, 0.35, 2, 6), mat(0x4e3b2a), mt);
-    inst(new THREE.IcosahedronGeometry(1, 1), mat(0x2f5a26), mc);
+    inst(new THREE.IcosahedronGeometry(1, 3), foliageMaterial(0x3a6a2c, { lump: 0.3 }), mc);
     // eucalyptus along the far side of the road: tall pale trunks, narrow sparse crowns
     const et = [], ec = [];
     for (let y = -150; y <= 150; y += 7) {
@@ -131,7 +193,7 @@ export class World {
       ec.push([P(-19.5 + rnd(i + 1), y, h * 0.85), new THREE.Vector3(1.6, h * 0.22, 1.6), rnd(i + 2) * 3]);
     }
     inst(new THREE.CylinderGeometry(0.12, 0.2, 2, 6), mat(0xd9d2c4), et);
-    inst(new THREE.IcosahedronGeometry(1, 0), mat(0x7d8f5a), ec);
+    inst(new THREE.IcosahedronGeometry(1, 3), foliageMaterial(0x7d8f5a, { sparse: 1, lump: 0.35, scale: 1.8, holes: 0.4 }), ec);
     // 11 kV feeder on cement poles along the road, a DP transformer near the gate, and the service drop to the packhouse
     const poles = [];
     for (let y = -150; y <= 150; y += 40) poles.push(y);
@@ -183,7 +245,7 @@ export class World {
       tc.push([P(x, y, 4.4 * sc), new THREE.Vector3(2.4 * sc, 1.9 * sc, 2.4 * sc), rnd(i) * 3]);
     }
     inst(new THREE.CylinderGeometry(0.15, 0.22, 2, 6), mat(0x5b4632), tt);
-    inst(new THREE.IcosahedronGeometry(1, 1), mat(0x3f6b35), tc);
+    inst(new THREE.IcosahedronGeometry(1, 3), foliageMaterial(0x3f6b35, { lump: 0.3 }), tc);
     // rocky hills on the horizon: granite domes with scrub, the Kolar skyline
     const rock = mat(0x8c8678), scrub = mat(0x6f7a52);
     for (let i = 0; i < 11; i++) {
@@ -228,6 +290,21 @@ export class World {
     const fogC = new THREE.Color().setHSL(0.58, 0.35, 0.08 + 0.72 * day);
     this.scene.fog.color.copy(fogC);
     this.dayFactor = day;
+    const R = this.realSky;
+    if (R) {
+      const S = { ...REAL_SKY, ...(window.__sky || {}) };                // window.__sky: look tuning from the console
+      // three samples the panorama at atan2(z, x) − rotation, so this puts the photo's sun on the sim's sun
+      const phi = Math.atan2(d.z, d.x) - R.thetaSun;
+      this.scene.backgroundRotation.set(0, phi, 0);
+      this.scene.environmentRotation.set(0, phi, 0);
+      this.scene.backgroundIntensity = S.bgI * (0.25 + 0.75 * day);
+      this.scene.environmentIntensity = S.envI * (0.2 + 0.8 * day);
+      this.renderer.toneMappingExposure *= S.exp;
+      this.sun.intensity *= S.sunI;
+      this.hemi.intensity *= S.hemiI;
+      this.scene.fog.color.set(REAL_SKY.horizon).multiplyScalar(0.25 + 0.75 * day);
+      return day;
+    }
     // refresh reflections every ~20 sim minutes
     if (Math.abs(minutes - this.envTime) > 20) {
       this.envTime = minutes;
