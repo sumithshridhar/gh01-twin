@@ -60,7 +60,25 @@ export class Farm4 {
           float h = max(0.0, wp.y - 1.0);
           float w = sin(uTime * 2.1 + wp.x * 0.35 + wp.z * 0.21) * 0.6 + sin(uTime * 3.7 + wp.x) * 0.25;
           transformed.z += uAmp * h * h * 0.012 * (1.0 + w);
-          transformed.x += uAmp * h * h * 0.004 * w;`);
+          transformed.x += uAmp * h * h * 0.004 * w;`).replace('#include <project_vertex>', `#include <project_vertex>
+          vFolPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`).replace('void main() {', 'varying vec3 vFolPos;\nvoid main() {');
+        // 12 Oct 2026: the crowns read as faceted cones. Clumps of light and shade + a frayed silhouette make them read as
+        // feathery casuarina foliage (the trunks are left alone: only fragments above 1.2 m get it)
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', `varying vec3 vFolPos;
+          float fh(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+          float fn(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(mix(fh(i), fh(i + vec3(1,0,0)), f.x), mix(fh(i + vec3(0,1,0)), fh(i + vec3(1,1,0)), f.x), f.y),
+                       mix(mix(fh(i + vec3(0,0,1)), fh(i + vec3(1,0,1)), f.x), mix(fh(i + vec3(0,1,1)), fh(i + vec3(1,1,1)), f.x), f.y), f.z); }
+          float fbm(vec3 p) { return 0.55 * fn(p) + 0.3 * fn(p * 2.3) + 0.15 * fn(p * 5.1); }
+          void main() {`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          float folK = step(1.2, vFolPos.y);
+          float fol = fbm(vFolPos * 3.1);
+          if (folK > 0.5) {
+            float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+            if (rim > 0.45 && fbm(vFolPos * 7.3) < (rim - 0.45) * 1.9) discard;
+            normal = normalize(normal + 0.55 * (vec3(fn(vFolPos * 4.7), fn(vFolPos * 4.7 + 17.0), fn(vFolPos * 4.7 + 31.0)) - 0.5));
+          }`).replace('#include <color_fragment>', `#include <color_fragment>
+          if (vFolPos.y > 1.2) diffuseColor.rgb *= mix(0.55, 1.2, fbm(vFolPos * 3.1)) * vec3(0.95, 1.0, 0.92);`);
       };
       m.material.needsUpdate = true;
     });

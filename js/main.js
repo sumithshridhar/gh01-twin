@@ -26,6 +26,8 @@ const MOBILE = matchMedia('(max-width: 820px)').matches;
 
 // ?capture: the video recorder drives frames itself (GH.frame) and the HTML HUD is hidden; overlays are added in Remotion
 const CAPTURE = new URLSearchParams(location.search).has('capture');
+// look v2 (12 Oct 2026, video capture by default): the photographed sky + neutral tone mapping; ?look=v1 = the old look
+const LOOK = new URLSearchParams(location.search).get('look') || (CAPTURE ? 'v2' : 'v1');
 
 // ── renderer / scene / post (two quality tiers) ────────────────
 const canvas = $('#c');
@@ -36,7 +38,8 @@ try { const q = localStorage.getItem('gh-quality'); if (q) HIGH = q === 'high'; 
 let PR = 1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.autoUpdate = false;
-renderer.toneMapping = THREE.AgXToneMapping;
+// AgX reads flat and grey once a video is re-encoded for Reels (saturation ~8 vs ~16 for the Blender videos); Neutral keeps the real colours
+renderer.toneMapping = LOOK === 'v2' ? THREE.NeutralToneMapping : THREE.AgXToneMapping;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.03, 1200);
 camera.position.set(-16, 7, 16);
@@ -648,9 +651,9 @@ function unghost() {
   if (T.sys) setTimeout(applySystemsView, 0);
   ghosted.length = 0;
   document.getElementById('app').classList.remove('focus');
-  world.sky.visible = true;
+  world.sky.visible = !world.realSky;
   world.backdrop.visible = true;
-  scene.background = null;
+  scene.background = world.realSky?.bg ?? null;
   if (A.focusFog) scene.fog.color.copy(A.focusFog);
   if (holo) holo.visible = false;
 }
@@ -1164,6 +1167,7 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     hookActuators();
     sim = new Sim(A, SIMDATA);
     A.sim = sim;
+    if (LOOK === 'v2') { setProgress('Loading the sky…'); await world.useRealSky(); }
     world.setTime(sim.t, sim.cloud);
     buildNetwork();
     drawSystems();
@@ -1180,7 +1184,7 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     loadPlants();
     loadFarm();
     window.GH = { A, select, deselect, flyTo, camera, controls, B, farm4, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
-      frame: (dt = 1 / 30) => { fpsAcc = -1e9; frame(dt); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle };   // console handle for demos
+      frame: (dt = 1 / 30) => { fpsAcc = -1e9; frame(dt); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle, renderer, scene, world, get bloom() { return bloom; } };   // console handle for demos
     if (location.hash === '#go') $('#ld-start').click();
   } catch (err) {
     console.error(err);
