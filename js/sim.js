@@ -42,7 +42,7 @@ export class Sim {
     this.drainSteer = true;
     this.irrHold = 0;
     this.dli = 14.2;
-    this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false, stockA: false, bore: false };
+    this.faults = { pump: false, sensor: false, water: false, robot: false, disease: false, filter: false, stockA: false, bore: false, uv: false, net: false };
     this.flags = { boxStuck: [null, null], boxBad: [false, false], disagree: false, disagreeSince: null, hardThermo: false, pondLow: false, tankLow: false, tankLowLow: false, refillFail: false, plantsDry: false,
       irrBlocked: false, diseaseFound: false, robotAlarm: false, lowFlow: false, stockLow: false, stockHold: false, boreFail: false };
     this.irr = { phase: 'idle', zone: 0, t0: 0, dur: 5.4, vol: 180, confirmed: false, startReal: 0, retry: 0 };
@@ -56,6 +56,16 @@ export class Sim {
       battery: 76, scanned: 31, pollinated: 118, stuck: false, override: null, puff: 0 };
     this.traps = [{ wf: 23, th: 4, tu: 1 }, { wf: 17, th: 6, tu: 0 }, { wf: 9, th: 2, tu: 1 }];
     this.tankHist = [];
+    // farm v4 (11 Oct 2026)
+    this.storm = null;
+    this.stormLog = null;
+    this.rainToday = 0;
+    this.ffLeft = 0;
+    Object.assign(this.w, { sumpL: 24, sumpEC: 4.4, uvOK: true, recycledL: 0, recycledToday: 0, untreatedL: 0, uvI: 100 });
+    this.drone = { phase: 'docked', t0: 0, dur: 12, battery: 100, flights: 0 };
+    this.gh02 = { vents: 35, curtains: 'half open' };
+    // 12 Oct 2026: the farm's link to the farmer. up = the 4G data link really works; the twin's belief is comms.ok
+    this.comms = { up: true, ok: true, missed: 0, lastBeat: 0, queue: [], lost: [], sms: 0, beacon: false };
     this.refillDueSince = null;
     this.queue = [];
     this.app.alarm(null);
@@ -80,13 +90,105 @@ export class Sim {
   // ── weather ────────────────────────────────────────────────
   weather(t) {
     const h = (t / 60) % 24;
-    const cloud = this.heat ? 0 : this.cloud;
-    const solar = 960 * Math.max(0, Math.sin(Math.PI * (h - 6.1) / 12.1)) ** 1.25 * (1 - 0.65 * cloud);
+    let cloud = this.heat ? 0 : this.cloud;
     let T = 23 + 7.5 * Math.sin((2 * Math.PI * (h - 9.5)) / 24);
     let RH = clamp(72 - 28 * Math.sin((2 * Math.PI * (h - 9.5)) / 24), 25, 96);
     if (this.heat) { T += 9; RH = clamp(RH - 22, 12, 90); }
-    const wind = 2.2 + 1.6 * Math.sin(h / 3.1) + (this.heat ? 1.5 : 0);
-    return { T, RH, solar, wind, cloud, rain: false };
+    let wind = 2.2 + 1.6 * Math.sin(h / 3.1) + (this.heat ? 1.5 : 0);
+    let dir = 255 + 25 * Math.sin(h / 2.3);                          // degrees from north: west-south-west most of the year
+    let rain = 0;
+    // 11 Oct 2026: pre-monsoon thunderstorms (Kolar gets them April–May and Sept–Oct): a burst of heavy rain with gusts
+    // from the west-south-west, an overcast sky, cooler and wetter air. Shaped as a bell over the storm's length.
+    const s = this.storm;
+    if (s) {
+      const u = (t - s.t0) / s.dur;
+      if (u >= 0 && u <= 1) {
+        const bell = Math.sin(Math.PI * u) ** 1.5;
+        rain = s.rainPeak * bell;
+        wind += s.gust * bell * (0.85 + 0.15 * Math.sin(t * 2.7));
+        cloud = Math.max(cloud, 0.5 + 0.3 * bell);
+        T -= 6 * bell; RH = clamp(RH + 30 * bell, 25, 98);
+        dir = 248 + 12 * Math.sin(t * 0.7);
+      }
+    }
+    const solar = 960 * Math.max(0, Math.sin(Math.PI * (h - 6.1) / 12.1)) ** 1.25 * (1 - 0.65 * cloud);
+    return { T, RH, solar, wind, cloud, rain, dir };
+  }
+
+  // 11 Oct 2026: two rows of casuarina on the west and north (a 40–60 % porous belt) cut the wind behind them by about
+  // 45 % when it blows from the W / SW / NW, which is when Karnataka's strong winds come. From the east it does nothing.
+  windAtHouse(o = this.out) {
+    const fromWest = Math.cos(((o.dir ?? 255) - 270) * Math.PI / 180) > 0.34;    // within ±70° of west
+    return o.wind * (fromWest && this.windbreak !== false ? 0.55 : 1);
+  }
+
+  // every alert to the farmer goes through here (Telegram over the farm's 4G router)
+  notify(msg) {
+    const c = this.comms;
+    if (c.ok) {
+      this.app.toast('Telegram → farmer', msg);
+      if (!c.up) c.lost.push({ t: this.t, msg });                       // only until the heartbeat notices (≤ 2 min)
+      return;
+    }
+    // offline: the twin knows it. SMS through the backup modem (2G, a second operator), queue the Telegram copy,
+    // and for anything that stops water or cooling, the beacon + siren at the packhouse
+    c.queue.push({ t: this.t, msg });
+    c.sms++;
+    this.app.toast('SMS → farmer (backup modem)', msg.replace(/^GH-01: /, 'GH-01 SMS: ').slice(0, 160));
+    this.app.log('FARMER', 'SMS sent via the backup modem (4G down); Telegram copy queued');
+    if (/blocked|EMPTY|frozen|stopped|drying|no flow|out\./.test(msg)) {
+      c.beacon = true;
+      this.app.log('ACT', 'Beacon + siren ON at the packhouse (critical alarm while offline)');
+    }
+  }
+
+  // 12 Oct 2026: the router pings the twin's server every minute. Two missed beats = offline (before this the twin had no
+  // idea: every alert was "sent", even into a dead 4G link). When the link is back, the queued messages go out.
+  commsTick(dt) {
+    const c = this.comms, A = this.app;
+    c.up = !this.faults.net;
+    if (this.t - c.lastBeat < 1 && this.t >= c.lastBeat) return;
+    c.lastBeat = this.t;
+    c.missed = c.up ? 0 : c.missed + 1;
+    if (c.ok && c.missed >= 2) {
+      c.ok = false;
+      A.chain('ALARM');
+      A.log('SENSE', '4G router: 2 heartbeats missed · no route to the internet');
+      A.alarm('4G link down · alerts by SMS');
+      A.flagComponent('comms_mast', 'fault');
+      c.sms++;
+      A.toast('SMS → farmer (backup modem)', 'GH-01 SMS: farm internet is down. Alerts will come by SMS until it is back. Greenhouse running normally.');
+      A.log('FARMER', 'SMS sent: internet down');
+    }
+    if (!c.ok && c.up) {
+      c.ok = true; c.beacon = false;
+      A.alarm(null); A.flagComponent('comms_mast', null);
+      A.log('OK', `4G back · ${c.queue.length} queued message(s) delivered on Telegram`);
+      if (c.queue.length) A.toast('Telegram → farmer', `GH-01: back online. ${c.queue.length} alert(s) from the outage (already sent by SMS): ${c.queue.map((q) => q.msg.replace(/^GH-01: /, '').slice(0, 60)).join(' · ')}`);
+      c.queue = [];
+    }
+  }
+
+  recycleOK() { const w = this.w; return this.recycle !== false && w.uvOK && w.sumpEC < 5.5 && w.sumpL > 2; }
+
+  // 12 Oct 2026: the lamp is now measured. A UV-C sensor (254 nm photodiode) looks through the chamber wall and the ballast
+  // reports lamp current. Before this, "UV on" was a constant: a dead lamp kept recycling untreated drain water to every plant.
+  uvCheck() {
+    const w = this.w, f = this.flags, A = this.app;
+    w.uvI = this.faults.uv ? 0 : 100;
+    if (w.uvI < 60 && !f.uvBad) {
+      f.uvBad = true; w.uvOK = false;
+      A.chain('ALARM');
+      A.log('SENSE', `UV-C sensor ${w.uvI.toFixed(0)} % of normal · lamp current 0.0 A → the lamp is out`);
+      A.log('PLC', 'Drain recycling HELD: the drain goes to the soak pit, the mix tank tops up with fresh water only');
+      A.alarm('UV lamp out · recycling held');
+      A.flagComponent('drain_recycle', 'fault');
+      this.notify('GH-01: the UV lamp in the drain recycling unit is out. I stopped recycling, so untreated drain water can\'t reach the plants. Fresh water only until you replace the lamp (55 W UV-C, ≈ ₹2k).');
+      A.log('FARMER', 'Alert sent: UV lamp out');
+      A.sound.alarm();
+      A.focusOn?.('drain_recycle');
+    }
+    if (w.uvI >= 80 && f.uvBad) { f.uvBad = false; w.uvOK = true; A.alarm(null); A.flagComponent('drain_recycle', null); A.log('OK', 'UV lamp back · recycling on'); }
   }
 
   get readings() {
@@ -115,7 +217,7 @@ export class Sim {
     if (this.t >= 1440) {                         // midnight: the "today" counters start again
       this.t -= 1440; this.day++; this.dli = 0;
       for (const z of this.zones) Object.assign(z, { shots: 0, givenL: 0, drainL: 0, drainSalt: 0, drain: 0 });
-      this.w.todayL = 0; this.w.dosedML = 0; this.power.todayKWh = 0;
+      this.w.todayL = 0; this.w.dosedML = 0; this.power.todayKWh = 0; this.w.recycledToday = 0; this.rainToday = 0;
     }
     const o = this.out = this.weather(this.t);
     const a = this.act, i = this.inn;
@@ -156,6 +258,9 @@ export class Sim {
       this.tankMin = Math.floor(this.t);
       this.tankHist = [...(this.tankHist || []), this.w.tank].slice(-11);
     }
+    this.rainTick(dt);
+    this.commsTick(dt);
+    this.uvCheck();
     this.climateControl(dt);
     this.irrigationTick(dt);
     this.powerTick(dt);
@@ -213,10 +318,58 @@ export class Sim {
     A.log('PLC', `Refill switched to the pond reserve (${Math.round(this.pondLitres()).toLocaleString('en-IN')} L, down to the 5 % intake)`);
     A.alarm('Borewell dry · using the pond reserve');
     A.flagComponent('borewell', 'fault');
-    A.toast('Telegram → farmer', `GH-01: the borewell isn't giving water. I switched to the pond reserve: about ${days.toFixed(0)} days at 350 L/day. Please check the borewell (dry, pump or power).`);
+    this.notify(`GH-01: the borewell isn't giving water. I switched to the pond reserve: about ${days.toFixed(0)} days at 350 L/day. Please check the borewell (dry, pump or power).`);
     A.log('FARMER', 'Alert sent: borewell dry, running on the pond reserve');
     A.sound.alarm();
     A.focusOn?.('farm_pond');
+  }
+
+  // ── rain (11 Oct 2026): GH-01's 50 m² and GH-02's 1,024 m² of roof drain to the pond (85 % runoff; the first 1 mm of
+  // each storm goes to the first-flush chambers), plus the rain falling on the pond itself (64 m²). 1 % of pond = 840 L.
+  rainTick(dt) {
+    const o = this.out, w = this.w, A = this.app, s = this.storm;
+    if (o.rain > 0) {
+      const mm = (o.rain * dt) / 60;
+      let roofMM = mm;
+      if (this.ffLeft > 0) { const d = Math.min(this.ffLeft, mm); this.ffLeft -= d; roofMM -= d; }
+      const litres = roofMM * (50 + 1024) * 0.85 + mm * 64;
+      w.pond = Math.min(100, w.pond + litres / 840);
+      this.rainToday += litres;
+      if (s) { s.mm += mm; s.litres += litres; s.maxOut = Math.max(s.maxOut, o.wind); s.maxIn = Math.max(s.maxIn, this.windAtHouse(o)); }
+    }
+    // GH-02: vents and curtains follow the same rules as GH-01 (rain or wind at the house > 10 m/s → close)
+    const wIn = this.windAtHouse(o);
+    this.gh02.vents = o.rain > 2 || wIn > 10 ? 10 : Math.round(clamp(this.act.vent, 15, 100));
+    this.gh02.curtains = o.rain > 15 || wIn > 12 ? 'down (storm)' : o.solar > 40 ? 'half open' : 'down (night)';
+    if (s && !s.ended && this.t - s.t0 > s.dur) {
+      s.ended = true;
+      this.stormLog = { mm: s.mm, litres: s.litres, maxOut: s.maxOut, maxIn: s.maxIn, pond0: s.pond0, pond1: w.pond };
+      A.chain('SENSE');
+      A.log('SENSE', `Storm over: ${s.mm.toFixed(0)} mm of rain, gusts ${s.maxOut.toFixed(1)} m/s outside, ${s.maxIn.toFixed(1)} m/s behind the windbreak`);
+      A.log('OK', `Rain harvest: ${Math.round(s.litres).toLocaleString('en-IN')} L into the pond (${s.pond0.toFixed(0)} % → ${w.pond.toFixed(0)} %)`);
+      this.notify(`GH-01: storm over. ${s.mm.toFixed(0)} mm of rain; the roofs sent ${Math.round(s.litres).toLocaleString('en-IN')} L to the pond (now ${w.pond.toFixed(0)} %). Gusts ${s.maxOut.toFixed(0)} m/s outside, ${s.maxIn.toFixed(0)} m/s behind the trees. Drone survey when the wind drops.`);
+      A.log('FARMER', 'Alert sent: storm summary');
+    }
+    // the drone flies when a storm is over and the wind is down (or when asked)
+    const d = this.drone;
+    if (s && s.ended && !s.surveyed && o.wind < 8 && d.phase === 'docked') { s.surveyed = true; this.startDrone('after the storm'); }
+    if (d.phase === 'flying' && this.t - d.t0 >= d.dur) {
+      d.phase = 'docked'; d.flights++; d.battery = 100 - 38;
+      A.chain('OK');
+      A.log('ROBOT', 'Drone back on the dock · charging');
+      this.notify('GH-01: drone roof survey done (GH-01 + GH-02, 180 photos). Film intact, all vents closing fully, gutters clear. Photos attached.');
+      A.log('FARMER', 'Alert sent: roof survey');
+    }
+    if (d.phase === 'docked' && d.battery < 100) d.battery = Math.min(100, d.battery + dt * 0.8);
+  }
+
+  startDrone(why = 'on request') {
+    const d = this.drone;
+    if (d.phase !== 'docked') return;
+    Object.assign(d, { phase: 'flying', t0: this.t, dur: 12 });
+    this.app.chain('ACT');
+    this.app.log('ROBOT', `Drone take-off (${why}): roof survey of GH-01 + GH-02, 10 m above the roofs, 12 min`);
+    this.app.pulse?.('drone_dock', 'drone', 'cmd');
   }
 
   pondLitres() { return (this.w.pond / 100) * 84000; }
@@ -250,7 +403,7 @@ export class Sim {
       if (P.level === 'reserve') {
         A.chain('PLC');
         A.log('PLC', `Battery at ${(P.soc * 100).toFixed(0)} % → reserve mode: circulation fans, fogging and robot charging OFF, cooling capped at one fan`);
-        A.toast('Telegram → farmer', `GH-01: still no grid power. Battery ${(P.soc * 100).toFixed(0)} %. Running reduced cooling to keep the reserve.`);
+        this.notify(`GH-01: still no grid power. Battery ${(P.soc * 100).toFixed(0)} %. Running reduced cooling to keep the reserve.`);
       } else if (P.level === 'critical') {
         A.chain('ALARM');
         A.log('ALARM', 'Battery at 12 % → only the controller, alarms and 4G stay on. Fans and pad OFF.');
@@ -312,7 +465,9 @@ export class Sim {
     if (this.flags.diseaseFound && r.vpd < 0.55) { p.vent = Math.max(p.vent, 20); p.why = p.why || 'disease plan: keep VPD ≥ 0.55 kPa'; }
     // PLC limits
     let plcNote = '';
-    if (o.wind > 10) { p.vent = Math.min(p.vent, 10); plcNote = 'wind > 10 m/s → vent limited to 10 %'; }
+    const wIn = this.windAtHouse(o);
+    if (wIn > 10) { p.vent = Math.min(p.vent, 10); plcNote = `wind at the house ${wIn.toFixed(1)} m/s > 10 → vent limited to 10 %`; }
+    if (o.rain > 2 && p.vent > 15) { p.vent = 15; plcNote = plcNote || `rain ${o.rain.toFixed(0)} mm/h → vent limited to 15 %`; }
     if (p.pad && p.fans === 0) { p.pad = false; plcNote = 'pad needs fans'; }
     if (p.fog && r.RH > 85) { p.fog = false; p.fogMode = false; plcNote = 'fog blocked: RH > 85 %'; }
     // hard-wired thermostat (independent of AI + PLC program, with its own bulb, so a bad climate box can't blind it)
@@ -459,7 +614,7 @@ export class Sim {
         this.app.log('AI', 'Low flow + high filter Δp → disc filter clogging. Shots now end on the flow meter, not the clock (max 10 min/zone)');
         this.app.alarm('Low flow · disc filter clogging');
         this.app.flagComponent('disc_filter', 'fault');
-        this.app.toast('Telegram → farmer', `GH-01: the disc filter is clogging. Flow ${w.flow.toFixed(2)} L/min instead of 0.60. Shots now run longer to make up for it. Please clean the filter today (Δp ${w.dp.toFixed(2)} bar, clean 0.17).`);
+        this.notify(`GH-01: the disc filter is clogging. Flow ${w.flow.toFixed(2)} L/min instead of 0.60. Shots now run longer to make up for it. Please clean the filter today (Δp ${w.dp.toFixed(2)} bar, clean 0.17).`);
         this.app.log('FARMER', 'Alert sent: filter clogging');
         this.app.sound.alarm();
         this.app.focusOn?.('disc_filter');
@@ -501,6 +656,12 @@ export class Sim {
     z.drainL += drainL;
     z.drainSalt += (over / 100) * SLAB_L * z.ec + litres * BYPASS * this.w.ec;
     z.drain = (100 * z.drainL) / z.givenL;
+    // 11 Oct 2026: the drain goes to the sump (18 plants per zone; ~10 % is lost to the slab film and evaporation)
+    const inL = drainL * 18 * 0.9, w = this.w;
+    if (inL > 0) {
+      w.sumpEC = (w.sumpEC * w.sumpL + z.ec * inL) / Math.max(1e-6, w.sumpL + inL);
+      w.sumpL = Math.min(200, w.sumpL + inL);
+    }
   }
 
   drainToday() { const g = this.zones.reduce((s, z) => s + z.givenL, 0); return g > 0 ? (100 * this.zones.reduce((s, z) => s + z.drainL, 0)) / g : 0; }
@@ -540,7 +701,7 @@ export class Sim {
       this.flags.irrBlocked = true;
       this.app.log('ALARM', 'Second attempt failed → irrigation BLOCKED · fallback: none until repaired');
       this.app.alarm('Pump fault · irrigation blocked');
-      this.app.toast('Telegram → farmer', 'GH-01: irrigation pump has no flow (checked twice). Irrigation blocked. Check pump / power / priming.');
+      this.notify('GH-01: irrigation pump has no flow (checked twice). Irrigation blocked. Check pump / power / priming.');
       this.app.log('FARMER', 'Alert sent: pump fault (Telegram + SMS)');
       this.app.focusOn?.('irrigation_pump');
     }
@@ -567,9 +728,16 @@ export class Sim {
     }
     if (m.phase === 'fill') {
       const q = Math.min(dt * 12, 60 - w.mix);
-      // fresh water (EC 0.3, no calcium) dilutes what's left of the last batch
-      w.ec = (w.ec * w.mix + 0.3 * q) / Math.max(1e-6, w.mix + q); w.ecA *= w.mix / Math.max(1e-6, w.mix + q);
-      w.mix += q; w.tank = Math.max(0, w.tank - q * 0.4);
+      // fresh water (EC 0.3, no calcium) dilutes what's left of the last batch. 11 Oct 2026: up to 30 % of the top-up is
+      // UV-treated drain water from the sump, which still carries its fertiliser (drain EC ≈ 4–5), so less stock is dosed.
+      const share = this.recycleOK() ? Math.min(q * 0.3, w.sumpL) : 0;
+      const fresh = q - share, tot = Math.max(1e-6, w.mix + q);
+      w.ec = (w.ec * w.mix + 0.3 * fresh + w.sumpEC * share) / tot;
+      w.ecA = (w.ecA * w.mix + (share * (w.sumpEC - 0.3)) / 2) / tot;
+      w.sumpL -= share; w.recycledL += share; w.recycledToday += share;
+      // a dead lamp (or a fouled quartz sleeve) treats nothing: whatever was in the drain goes back to every plant
+      if (w.uvI < 60) w.untreatedL += share;
+      w.mix += q; w.tank = Math.max(0, w.tank - fresh * 0.4);
       if (w.mix >= 59 && this.flags.stockHold) {
         m.phase = 'mix'; m.t0 = this.t;
         this.app.log('PLC', 'Stock tank on hold → water-only batch: no dosing, so B is never fed without A');
@@ -618,7 +786,7 @@ export class Sim {
     const empty = w.stock.A < 2 || w.stock.B < 2;
     this.app.alarm(empty ? `Stock tank ${which.split(' ')[0]} empty · dosing stopped` : 'Dosing not delivering · dosing stopped');
     this.app.flagComponent(w.stock.B < 2 && w.stock.A >= 2 ? 'stock_B' : 'stock_A', 'fault');
-    this.app.toast('Telegram → farmer', empty
+    this.notify(empty
       ? `GH-01: stock tank ${which} is empty. I stopped dosing, so the plants won't get a feed without calcium. They get plain water until you refill it.`
       : `GH-01: the dosing isn't working: the EC rose half as fast as it should, so stock A or B isn't getting in (air in a dosing pump or a blocked suction?). I stopped dosing; the plants get plain water until it's fixed.`);
     this.app.log('FARMER', 'Alert sent: stock tank empty');
@@ -644,7 +812,7 @@ export class Sim {
       this.app.log('PLC', `Flat-line check failed → box ${i + 1} marked BAD, control uses box ${j + 1}`);
       this.app.flagComponent(id, 'fault');
       this.app.alarm(`Sensor fault · climate box ${i + 1}`);
-      this.app.toast('Telegram → farmer', `GH-01: climate sensor ${i + 1} is frozen. Running on sensor ${j + 1}. Check its fan / cable.`);
+      this.notify(`GH-01: climate sensor ${i + 1} is frozen. Running on sensor ${j + 1}. Check its fan / cable.`);
       this.app.log('FARMER', `Alert sent: sensor fault (control continues on box ${j + 1})`);
       this.app.sound.alarm();
       this.app.focusOn?.(id);
@@ -657,7 +825,7 @@ export class Sim {
         f.disagree = true;
         this.app.log('PLC', `Climate boxes disagree by ${gap.toFixed(1)} °C for 10 min and both are live → control uses the warmer one`);
         this.app.alarm('Climate sensors disagree');
-        this.app.toast('Telegram → farmer', `GH-01: climate sensors 1 and 2 differ by ${gap.toFixed(1)} °C. Cooling on the warmer one. Please check both.`);
+        this.notify(`GH-01: climate sensors 1 and 2 differ by ${gap.toFixed(1)} °C. Cooling on the warmer one. Please check both.`);
       }
       if (f.disagree && gap < 0.8) { f.disagree = false; this.app.alarm(null); this.app.log('OK', 'Climate boxes agree again'); }
     }
@@ -666,7 +834,7 @@ export class Sim {
     if (low < 15 && low >= 2 && !f.stockLow) {
       f.stockLow = true;
       this.app.log('SENSE', `Stock tank ${w.stock.A < w.stock.B ? 'A' : 'B'} at ${low.toFixed(0)} %`);
-      this.app.toast('Telegram → farmer', `GH-01: stock tank ${w.stock.A < w.stock.B ? 'A' : 'B'} at ${low.toFixed(0)} %, about ${Math.floor(low / 0.8)} batches left. Please mix a refill this week.`);
+      this.notify(`GH-01: stock tank ${w.stock.A < w.stock.B ? 'A' : 'B'} at ${low.toFixed(0)} %, about ${Math.floor(low / 0.8)} batches left. Please mix a refill this week.`);
     }
     if (low < 2 && !f.stockHold) this.stockFault('level sensor');
     if (f.stockHold && w.stock.A >= 10 && w.stock.B >= 10 && !this.faults.stockA) {
@@ -680,7 +848,7 @@ export class Sim {
       this.app.log('SENSE', `Pond level ${this.pondLevelM().toFixed(2)} m (${w.pond.toFixed(1)} %, ${Math.round(this.pondLitres()).toLocaleString('en-IN')} L)`);
       this.app.log('PLC', 'Pond below its 20 % reserve → pond pump OFF, tank refill switched to the borewell');
       this.app.log('AI', `The reserve covers ≈ ${days.toFixed(0)} days at 350 L/day (drip + wet pad) if the borewell fails too`);
-      this.app.toast('Telegram → farmer', `GH-01: farm pond at 20 %. Using the borewell now; the pond is kept as a ${days.toFixed(0)}-day reserve.`);
+      this.notify(`GH-01: farm pond at 20 %. Using the borewell now; the pond is kept as a ${days.toFixed(0)}-day reserve.`);
       this.app.log('FARMER', 'Alert sent: pond at reserve level');
       this.app.pulse('level_pond', 'control_cabinet', 'sense');
       this.app.focusOn?.('farm_pond');
@@ -698,7 +866,7 @@ export class Sim {
       this.app.chain('ALARM');
       this.app.log('SENSE', `Tank ${w.tank.toFixed(0)} % and falling ${fall.toFixed(1)} %/min although a refill is due`);
       this.app.log('AI', `Refill not reaching the tank: pond pump and borewell are not delivering. ≈ ${Math.round(left)} min of water left`);
-      this.app.toast('Telegram → farmer', `GH-01: the water tank is emptying (${w.tank.toFixed(0)} %) and the refill isn't working. Check the pond pump, the borewell and their power. About ${Math.round(left)} min of water left.`);
+      this.notify(`GH-01: the water tank is emptying (${w.tank.toFixed(0)} %) and the refill isn't working. Check the pond pump, the borewell and their power. About ${Math.round(left)} min of water left.`);
       this.app.log('FARMER', 'Alert sent: water supply not delivering');
       this.app.pulse('level_water_tank', 'control_cabinet', 'sense');
     }
@@ -716,7 +884,7 @@ export class Sim {
       this.app.alarm('Water shortage · pumps locked out');
       this.app.flagComponent('water_tank', 'fault');
       const h = this.hoursToStress();
-      this.app.toast('Telegram → farmer', `GH-01: water tank EMPTY. Irrigation stopped: the pump is fine, there is no water. The slabs hold about ${h.toFixed(1)} h of water at this sun.`);
+      this.notify(`GH-01: water tank EMPTY. Irrigation stopped: the pump is fine, there is no water. The slabs hold about ${h.toFixed(1)} h of water at this sun.`);
       this.app.log('FARMER', 'Alert sent: tank empty (not a pump fault)');
       this.app.sound.alarm();
       this.app.focusOn?.('water_tank');
@@ -726,7 +894,7 @@ export class Sim {
       f.plantsDry = true;
       this.app.chain('ALARM');
       this.app.log('ALARM', `Slabs at ${wc.toFixed(0)} % water (normal 65–72 %) and no water to give`);
-      this.app.toast('Telegram → farmer', `GH-01: plants are drying. Slab water ${wc.toFixed(0)} % (normal 65–72 %). Wilting in about ${this.hoursToStress(45).toFixed(1)} h unless water is restored.`);
+      this.notify(`GH-01: plants are drying. Slab water ${wc.toFixed(0)} % (normal 65–72 %). Wilting in about ${this.hoursToStress(45).toFixed(1)} h unless water is restored.`);
       this.app.log('FARMER', 'Alert sent: plants drying');
     }
     if (w.tank > 25 && f.tankLowLow) {
@@ -806,7 +974,7 @@ export class Sim {
       A.log('AI', 'Plan: keep night VPD ≥ 0.55 kPa (less leaf wetness), HAF fans on, flag #042 + neighbours for rescans');
       A.log('PLC', '✓ climate targets inside limits');
       A.markPlant('plant_042');
-      A.toast('Telegram → farmer', 'GH-01: plant #042 shows possible early blight on 2 lower leaves. Photo attached. Please inspect and remove those leaves.');
+      this.notify('GH-01: plant #042 shows possible early blight on 2 lower leaves. Photo attached. Please inspect and remove those leaves.');
       A.log('FARMER', 'Photo + location sent · task "Inspect #042" created');
       A.sound.alarm();
       A.focusOn?.('plant_042');
@@ -864,7 +1032,7 @@ export class Sim {
         A.log('ALARM', 'Robot heartbeat lost for 10 s → robot marked OFFLINE. Greenhouse control continues normally.');
         A.alarm('Robot stopped · bumper');
         A.flagComponent('scout_robot', 'fault');
-        A.toast('Telegram → farmer', 'GH-01: scout robot stopped in the aisle (bumper). Climate + irrigation unaffected.');
+        this.notify('GH-01: scout robot stopped in the aisle (bumper). Climate + irrigation unaffected.');
         A.sound.alarm();
         A.focusOn?.('scout_robot');
         break;
@@ -883,12 +1051,34 @@ export class Sim {
         A.alarm(P.solar ? 'Grid power cut · running on solar + battery' : 'Grid power cut · NO POWER');
         A.flagComponent('hybrid_inverter', 'fault');
         A.toast('Scenario', 'Power cut for 4 hours, through sunset: the panels fade and the battery takes over. Watch the battery and the cooling.');
-        A.toast('Telegram → farmer', P.solar ? `GH-01: grid power cut. Running on solar + battery (${(P.soc * 100).toFixed(0)} %). Cooling continues.`
+        this.notify(P.solar ? `GH-01: grid power cut. Running on solar + battery (${(P.soc * 100).toFixed(0)} %). Cooling continues.`
           : 'GH-01: grid power cut. No backup power: fans and pad are OFF.');
         A.log('FARMER', 'Alert sent: grid power cut');
         A.sound.alarm();
         break;
       }
+      case 'uv':
+        this.faults.uv = true;
+        A.log('OK', 'Scenario: the UV-C lamp in the drain recycling skid burns out');
+        A.toast('Scenario', 'The UV lamp that disinfects the recycled drain water just died. Does the twin notice?');
+        break;
+      case 'net':
+        this.faults.net = true; this.comms.up = false;
+        A.log('OK', 'Scenario: the 4G link drops (tower outage / data cut)');
+        A.toast('Scenario', 'The farm loses its 4G link. Something will break while it is down. Will the farmer find out?');
+        break;
+      case 'storm': {
+        const hh = (this.t / 60) % 24;
+        if (hh < 11 || hh > 15.5) { this.t = Math.floor(this.t / 1440) * 1440 + 13.5 * 60; A.log('OK', 'Clock moved to 13:30 for the storm'); }
+        this.ffLeft = 1.0;
+        this.storm = { t0: this.t, dur: 50, rainPeak: 82, gust: 14, mm: 0, litres: 0, maxOut: 0, maxIn: 0, pond0: this.w.pond, ended: false };
+        A.log('SENSE', 'Weather station: pre-monsoon thunderstorm from the west-south-west');
+        A.toast('Scenario', 'A pre-monsoon thunderstorm: heavy rain and gusts from the west. Watch the windbreak, the vents, and the pond filling from 1,074 m² of roof.');
+        break;
+      }
+      case 'drone':
+        this.startDrone();
+        break;
       case 'bore':
         this.w.pond = Math.min(this.w.pond, 19.9); this.flags.pondLow = true; this.faults.bore = true;
         this.w.tank = Math.min(this.w.tank, 58); this.w.refill = true; this.boreRun = 0;
@@ -930,7 +1120,7 @@ export class Sim {
         ['VPD', `${r.vpd.toFixed(2)} kPa`], ['CO₂', `${r.CO2.toFixed(0)} ppm`], ['Fan', bad ? '— (stuck)' : '4 200 rpm'], ['Status', bad ? 'BAD · ignored' : 'OK']], 'T', 'Air temperature °C');
     }
     if (id === 'par_sensor') return L([['PPFD', `${r.ppfd.toFixed(0)} µmol/m²/s`], ['DLI today', `${this.dli.toFixed(1)} mol`], ['Target', '20–30 mol']], 'solar', 'Solar W/m²');
-    if (id === 'weather_station') return L([['Outside', `${o.T.toFixed(1)} °C`], ['RH', `${o.RH.toFixed(0)} %`], ['Sun', `${o.solar.toFixed(0)} W/m²`], ['Wind', `${o.wind.toFixed(1)} m/s`], ['Rain', 'no']], 'Tout', 'Outside °C');
+    if (id === 'weather_station') return L([['Outside', `${o.T.toFixed(1)} °C`], ['RH', `${o.RH.toFixed(0)} %`], ['Sun', `${o.solar.toFixed(0)} W/m²`], ['Wind', `${o.wind.toFixed(1)} m/s from ${Math.round(o.dir ?? 255)}°`], ['Rain', o.rain > 0 ? `${o.rain.toFixed(0)} mm/h` : 'no'], ['Rain today', `${Math.round(this.rainToday).toLocaleString('en-IN')} L harvested`]], 'Tout', 'Outside °C');
     if (id.includes('water_tank')) return L([['Level', `${w.tank.toFixed(0)} %`], ['Volume', `${(w.tank * 5).toFixed(0)} L`], ['Supply', w.supply ? 'ON (float valve)' : 'CUT'], ['LOW-LOW float', this.flags.tankLowLow ? 'OPEN → pumps locked' : 'closed']], 'tank', 'Tank %');
     if (id.includes('mix_tank')) return L([['Level', `${w.mix.toFixed(0)} %`], ['EC', `${w.ec.toFixed(2)} mS/cm`], ['pH', w.ph.toFixed(2)], ['Mixer', on(a.mixer)], ['Batch', this.mixing.phase]], 'mix', 'Mix tank %');
     if (id.startsWith('stock')) { const k = id.endsWith('acid') ? 'acid' : id.endsWith('B') ? 'B' : 'A'; return L([['Level', `${w.stock[k].toFixed(0)} %`], ['Holds', '60 L'], ['Feed calcium', `${Math.round(this.feedCa * 100)} % of recipe`], ['Dosing', this.flags.stockHold ? 'ON HOLD' : 'OK']]); }
@@ -962,6 +1152,12 @@ export class Sim {
       return L([['Charge', `${(P.soc * 100).toFixed(0)} %`], ['Energy', `${(P.soc * 5.12).toFixed(2)} kWh of 5.12`], ['Time left', left !== null ? `${Math.floor(left)} h ${Math.round((left % 1) * 60)} min at this load` : '— (not discharging)'], ['Mode', P.level], ['Reserve', '30 % kept for safety loads']], 'soc', 'Battery %');
     }
     if (id === 'power_panel') return L([['Grid', P.grid ? '230 V · ON' : 'OFF'], ['Load', kw(P.load)], ['Surge arresters', 'OK']]);
+    if (id === 'drain_recycle') return L([['Sump', `${w.sumpL.toFixed(0)} L of 200`], ['Drain EC', `${w.sumpEC.toFixed(2)} mS/cm`], ['UV-C lamp', w.uvI >= 60 ? `ON · ${w.uvI.toFixed(0)} % (sensor)` : 'OUT (sensor 0 %)'], ['Recycling', this.recycleOK() ? 'yes (≤ 30 % of each batch)' : 'held'], ['Recycled today', `${w.recycledToday.toFixed(0)} L`], ['Recycled total', `${w.recycledL.toFixed(0)} L`]], 'mix', 'Mix tank %');
+    if (id === 'windbreak') return L([['Trees', '76 casuarina, 2 rows'], ['Height', '≈6 m (year 3)'], ['Wind outside', `${o.wind.toFixed(1)} m/s from ${Math.round(o.dir ?? 255)}°`], ['Wind at the houses', `${this.windAtHouse(o).toFixed(1)} m/s`]], 'Tout', 'Outside °C');
+    if (id === 'comms_mast') { const c = this.comms; return L([['4G link', c.ok ? 'online · −95 dBm' : 'DOWN (heartbeat)'], ['Alerts route', c.ok ? 'Telegram' : 'SMS (backup modem, 2nd operator)'], ['Queued for Telegram', `${c.queue.length}`], ['SMS sent', `${c.sms}`], ['Beacon + siren', c.beacon ? 'ON' : 'off'], ['Lightning rod', 'earth 2.1 Ω (tested)']]); }
+    if (id === 'vermicompost') return L([['Beds', '2 × 12 × 4 × 2 ft'], ['Feed', 'crop residue + dung'], ['Moisture', '62 %'], ['Next harvest', 'in 6 weeks']]);
+    if (id === 'gh02') return L([['Area', '1,024 m² · 4 spans'], ['Plants', '≈2,500 tomato'], ['Roof vents', `${this.gh02.vents} %`], ['Curtains', this.gh02.curtains], ['Rain on the roof today', `${Math.round(this.rainToday).toLocaleString('en-IN')} L → pond`]], 'T', 'Air °C');
+    if (id === 'drone_dock' || id === 'drone') { const d = this.drone; return L([['Drone', d.phase === 'flying' ? `flying · ${Math.round(((this.t - d.t0) / d.dur) * 100)} %` : 'on the dock'], ['Battery', `${Math.round(d.battery)} %`], ['Flights', `${d.flights}`], ['Next', 'after the next storm']]); }
     if (id === 'farm_pond') return L([['Level', `${this.pondLevelM().toFixed(2)} m of 3.0`], ['Stored', `${(w.pond).toFixed(1)} % · ${Math.round(this.pondLitres()).toLocaleString('en-IN')} L`], ['Reserve', '20 % (kept for emergencies)'], ['Tank refills from', w.source === 'none' ? (this.flags.pondLow ? 'borewell (when needed)' : 'pond (when needed)') : w.source], ['Days of water', `${Math.max(0, (this.pondLitres() - 0.05 * 84000) / 350).toFixed(0)} at 350 L/day`]], 'pond', 'Pond %');
     if (id === 'level_pond') return L([['Distance to water', `${(1.2 + 3 - this.pondLevelM()).toFixed(2)} m`], ['Level', `${this.pondLevelM().toFixed(2)} m`], ['Node power', 'own solar panel']], 'pond', 'Pond %');
     if (id === 'pond_pump') return L([['Running', on(a.pondPump)], ['Flow', a.pondPump ? '≈ 25 L/min' : '0'], ['Pond', `${w.pond.toFixed(1)} %`], ['Rule', 'only above the 20 % reserve']], 'pond', 'Pond %');

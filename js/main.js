@@ -12,6 +12,7 @@ import { FX } from './fx.js';
 import { Blueprint } from './blueprint.js';
 import { Sim } from './sim.js';
 import { Sound } from './sound.js';
+import { Farm4 } from './farm4.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -77,6 +78,7 @@ applyQuality();
 // ── app object shared with sim + fx ───────────────────────────
 const A = { scene, camera, renderer, comps: new Map(), sound: new Sound(), alarmText: '' };
 const fx = new FX(A);
+const farm4 = new Farm4(scene, A);           // 11 Oct 2026: GH-02 crop, drone flight, rain, windbreak sway, UV lamp
 A.fx = fx;
 const blueprint = new Blueprint($('#bp'));
 const hlCache = new Map();
@@ -942,7 +944,7 @@ $('#scen').addEventListener('click', (e) => {
   A.sound.tick();
   stopTour();
   if (sel && b.dataset.s !== 'reset') deselect();
-  if (!['reset', 'robot', 'disease', 'sensor'].includes(b.dataset.s)) A.systemsView(true);
+  if (!['reset', 'robot', 'disease', 'sensor', 'storm', 'drone', 'uv', 'net'].includes(b.dataset.s)) A.systemsView(true);
   if (b.dataset.s === 'reset') A.systemsView(false);
   sim.scenario(b.dataset.s);
   if (b.dataset.s === 'irrigate' || b.dataset.s === 'pump') flyTo(B(3.5, -0.15, 2.45), B(1.35, -0.95, 1.0), 1.4);
@@ -955,6 +957,10 @@ $('#scen').addEventListener('click', (e) => {
   if (b.dataset.s === 'filter') flyTo(B(2.9, 0.9, 2.2), B(0.8, -1.6, 0.9), 1.6);
   if (b.dataset.s === 'stockA') flyTo(B(2.9, 0.9, 2.2), B(0.8, -1.6, 0.9), 1.6);
   if (b.dataset.s === 'bore') flyTo(B(-3.2, -3.6, 3.4), B(5.2, -10.8, -1.2), 1.6);
+  if (b.dataset.s === 'storm') flyTo(B(-14, 26, 15), B(22, -2, 3), 2.0);
+  if (b.dataset.s === 'drone') flyTo(B(2, 24, 14), B(26, 0, 6), 2.0);
+  if (b.dataset.s === 'uv') flyTo(B(-3.4, 4.0, 1.7), B(-1.0, 1.7, 0.95), 1.6);
+  if (b.dataset.s === 'net') flyTo(B(-1.6, 6.4, 3.0), B(0.6, 4.2, 2.3), 1.6);
 });
 $('#helpbtn').addEventListener('click', () => { $('#help').hidden = false; });
 $('#help-ok').addEventListener('click', () => { $('#help').hidden = true; });
@@ -1073,8 +1079,9 @@ function loop() {
 }
 function frame(dt) {
   sim.tick(dt);
-  if (Math.abs(sim.t - lastWorldT) > 0.5) { world.setTime(sim.t, sim.heat ? 0 : sim.cloud); lastWorldT = sim.t; if (sel) scene.fog.color.set(0x061219); }
+  if (Math.abs(sim.t - lastWorldT) > 0.5) { world.setTime(sim.t, sim.heat ? 0 : (sim.out?.cloud ?? sim.cloud)); lastWorldT = sim.t; if (sel) scene.fog.color.set(0x061219); }
   updateActuators(dt);
+  farm4.update(dt, controls.target);
   growPlants(dt);
   updateExplode(dt);
   if (fly) {
@@ -1141,7 +1148,8 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
   prepareMaterials(g.scene, register(g.scene));
   if (T.sys) applySystemsView();
   buildBVH();
-  A.log('OK', 'Farm in place · solar packhouse, farm pond, entry room, shade net');
+  farm4.setup(sim);
+  A.log('OK', 'Farm in place · solar packhouse, farm pond, entry room, shade net · GH-02 (1,024 m², ~2,500 plants), windbreak, drain recycling, comms mast, drone dock');
 }
 
 // ── boot ──────────────────────────────────────────────────────
@@ -1171,7 +1179,7 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     buildBVH();
     loadPlants();
     loadFarm();
-    window.GH = { A, select, deselect, flyTo, camera, controls, B, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
+    window.GH = { A, select, deselect, flyTo, camera, controls, B, farm4, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
       frame: (dt = 1 / 30) => { fpsAcc = -1e9; frame(dt); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle };   // console handle for demos
     if (location.hash === '#go') $('#ld-start').click();
   } catch (err) {
