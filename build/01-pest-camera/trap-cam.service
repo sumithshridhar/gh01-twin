@@ -1,0 +1,15 @@
+[Unit]
+Description=GH-01 sticky-trap camera: one photo per wake-up, then power off
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+User=pi
+Environment=GH_SERVER=http://gh01-edge.local:8088/trap
+Environment=GH_TRAP=trap-2
+ExecStart=/usr/bin/python3 /home/pi/trap_cam.py
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -9,6 +9,13 @@ It has 127 components and 54 tagged plants, each modelled in Blender on a real p
 zero-energy cool chamber), a lined farm pond with a level sensor and safety fence, rainwater gutters with a first-flush
 chamber, a double-door entry room with a footbath, a retractable aluminet shade net, and the farm's borewell as backup.
 
+**Robot row change (Oct 2026):** the scout robot now changes rows on its own. It backs off the pipe rails over a sloped
+handover plate onto 4 mecanum wheels, slides sideways to the next aisle, lines up on a floor code read by a camera underneath,
+and drives back onto the pipes. Write-up: why the rails cost ~₹17.7 lakh an acre in Indian polyhouses (no heating pipes).
+
+**Build it yourself:** [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
+AI on the farm's Pi 5 + AI HAT+): parts, wiring, code.
+
 **Try:**
 - Click any machine, sensor or plant to explode it into its parts, with a blueprint.
 - Run the failure tests (bottom left):

@@ -26,6 +26,8 @@ const MOBILE = matchMedia('(max-width: 820px)').matches;
 
 // ?capture: the video recorder drives frames itself (GH.frame) and the HTML HUD is hidden; overlays are added in Remotion
 const CAPTURE = new URLSearchParams(location.search).has('capture');
+// ?capture&hud (13 Oct 2026): frame-stepped recording with the game UI on screen ("gameplay" videos)
+const HUD = new URLSearchParams(location.search).has('hud');
 // look v2 (12 Oct 2026, video capture by default): the photographed sky + neutral tone mapping; ?look=v1 = the old look
 const LOOK = new URLSearchParams(location.search).get('look') || (CAPTURE ? 'v2' : 'v1');
 
@@ -390,6 +392,7 @@ function hookActuators() {
   H.dosing = ['A', 'B', 'acid'].map((k) => partObj(`dosing_pump_${k}`, 'rotor'));
   H.robot = A.comps.get('scout_robot')?.root;
   H.head = partObj('scout_robot', 'sensor_head');
+  H.robotRails = partObj('scout_robot', 'pipe_rails');
   H.solenoids = [1, 2, 3].map((z) => {
     const s = partObj(`zone_valve_${z}`, 'solenoid');
     const mats = [];
@@ -1041,8 +1044,13 @@ function updateActuators(dt) {
   if (T.air && a.fans > 0) fx.airflow(8.8, 0.4, [0.4, 2.4], [-2.1, 2.1], a.fans);
   // robot
   const R = sim.robot;
-  if (H.robot && !(sel && sel.id === 'scout_robot')) H.robot.position.copy(B(R.x, R.y, SIMDATA.robot.rail_z));
+  if (H.robot && !(sel && sel.id === 'scout_robot')) H.robot.position.copy(B(R.x, R.y, sim.robotZ ? sim.robotZ() : SIMDATA.robot.rail_z));
   if (H.head && H.head.userData._n && !(sel && sel.id === 'scout_robot')) H.head.position.copy(H.head.userData._n.base).add(new V3(0, R.lift - 1.1, 0));
+  // the robot model carries a short piece of pipe rail for its exploded view: show it only where real rails are under it
+  if (H.robotRails) {
+    const rc = A.comps.get('scout_robot');
+    H.robotRails.visible = !!(sel && sel.id === 'scout_robot') || (rc && rc.explodeT > 0) || (R.x - 0.8 >= 2.05 && Math.min(...SIMDATA.robot.aisles_y.map((a) => Math.abs(a - R.y))) < 0.01);
+  }
   fx.scanMat.opacity += ((R.scanning ? 0.16 : 0) - fx.scanMat.opacity) * Math.min(1, dt * 6);
   if (R.puff && H.head) { R.puff = 0; const p = H.head.getWorldPosition(new V3()); fx.puff(p.clone().add(new V3(0, 0.1, -0.35)), new V3(0, 0.2, -1)); fx.puff(p.clone().add(new V3(0, 0.1, 0.35)), new V3(0, 0.2, 1)); }
   if (H.beaconMat) {
@@ -1080,7 +1088,7 @@ function loop() {
   frame(Math.min(clock.getDelta(), 0.05));
   requestAnimationFrame(loop);
 }
-function frame(dt) {
+function frame(dt, draw = true) {      // draw = false: advance everything but skip the render (fast-forward for the recorder)
   sim.tick(dt);
   if (Math.abs(sim.t - lastWorldT) > 0.5) { world.setTime(sim.t, sim.heat ? 0 : (sim.out?.cloud ?? sim.cloud)); lastWorldT = sim.t; if (sel) scene.fog.color.set(0x061219); }
   updateActuators(dt);
@@ -1106,6 +1114,7 @@ function frame(dt) {
   if (chainTimer > 0) { chainTimer -= dt; if (chainTimer <= 0) A.chain(null); }
   uiTimer -= dt;
   if (uiTimer <= 0) { uiTimer = 0.3; drawReadings(); if (sel && tab === 'live') drawTab(); drawSystemsLite(); }
+  if (!draw) return;
   if (++shadowFrame % shadowEvery === 0 || shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
   if (HIGH && composer) composer.render(); else renderer.render(scene, camera);
   // adaptive quality
@@ -1178,13 +1187,13 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     $('#ld-bar').style.width = '100%';
     $('#ld-start').hidden = false;
     $('#ld-start').focus();
-    if (CAPTURE) $('#app').classList.add('capture');
+    if (CAPTURE) { if (!HUD) $('#app').classList.add('capture'); }
     else loop();
     buildBVH();
     loadPlants();
     loadFarm();
     window.GH = { A, select, deselect, flyTo, camera, controls, B, farm4, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
-      frame: (dt = 1 / 30) => { fpsAcc = -1e9; frame(dt); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle, renderer, scene, world, get bloom() { return bloom; } };   // console handle for demos
+      frame: (dt = 1 / 30, draw = true) => { fpsAcc = -1e9; frame(dt, draw); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle, renderer, scene, world, get bloom() { return bloom; }, dirtyShadows: () => { shadowDirty = true; }, THREE, plantSlots, H };   // console handle for demos
     if (location.hash === '#go') $('#ld-start').click();
   } catch (err) {
     console.error(err);
