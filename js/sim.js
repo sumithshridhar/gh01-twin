@@ -75,15 +75,29 @@ export class Sim {
 
   makeRoute() {
     const R = [];
-    const stops = this.data.robot.stops.filter((_, i) => i % 3 === 1);    // one stop per slab (middle plant)
-    for (const y of this.data.robot.aisles_y) {
-      R.push({ x: 1.75, y, stop: false });
+    const d = this.data.robot, PX = d.path_x ?? 1.75;
+    const stops = d.stops.filter((_, i) => i % 3 === 1);    // one stop per slab (middle plant)
+    for (const y of d.aisles_y) {
+      R.push({ x: PX, y, stop: false });
       for (const x of stops) R.push({ x, y, stop: true });
-      R.push({ x: 2.1, y, stop: false });
-      R.push({ x: 1.75, y, stop: false });
+      R.push({ x: PX, y, stop: false });
     }
     return R;
   }
+
+  // 14 Oct 2026: the robot's height. On the pipes its rail-contact plane is at rail_z; on the path slab it stands on its
+  // mecanum wheels (floor_drop below that plane), 1.45 cm higher; between them the sloped handover plate (slab level at
+  // handover[0], floor at handover[1]) lifts it off the pipes or lets it settle onto them.
+  robotZ() {
+    const d = this.data.robot, R = this.robot;
+    if (d.floor_drop == null || R.x < 0) return d.rail_z;
+    const [h0, h1] = d.handover;
+    const plate = (x) => (x <= h0 ? d.slab_z : x >= h1 ? 0 : (d.slab_z * (h1 - x)) / (h1 - h0));
+    const onPipes = R.x + 0.35 >= 2.1 && d.aisles_y.some((a) => Math.abs(R.y - a) < 0.01);
+    return Math.max(onPipes ? d.rail_z : -1, Math.max(plate(R.x - 0.2), plate(R.x + 0.2)) + d.floor_drop);
+  }
+
+  aisleOf(y) { return this.data.robot.aisles_y.findIndex((a) => Math.abs(a - y) < 0.01) + 1; }
 
   later(sec, fn) { this.queue.push({ at: this.realT + sec, fn }); }
 
@@ -948,18 +962,45 @@ export class Sim {
     }
     let target = R.route[R.wp];
     if (R.override === 'disease' && R.overrideTarget) target = R.overrideTarget;
+    const D = this.data.robot, PX = D.path_x ?? 1.75, A = this.app;
     const dx = target.x - R.x, dy = target.y - R.y;
-    const d = Math.hypot(dx, dy);
-    const v = (R.override ? 1.1 : 0.45) * dt;
-    if (d <= v) {
-      R.x = target.x; R.y = target.y;
-      if (target === R.overrideTarget || target.stop) { R.phase = 'scan'; R.timer = 0; if (target === R.overrideTarget) R.overrideTarget = null; }
-      else R.wp = (R.wp + 1) % R.route.length;
+    const fast = R.override ? 1.1 : 0.45;
+    // 14 Oct 2026: a real row change. The rails only go forward/back, so to reach another aisle the robot backs off the
+    // pipes onto the path (slowly over the handover plate), slides sideways on its mecanum wheels until the camera
+    // under its front centres that aisle's floor code, then drives forward onto the pipes. It never turns.
+    let stage;
+    if (Math.abs(dy) > 0.0005) {
+      if (R.x > PX + 0.0005) {
+        stage = 'exit';
+        const v = (R.x < 2.75 ? 0.12 : fast) * dt;
+        R.x -= Math.min(v, R.x - PX);
+      } else {
+        stage = 'shift';
+        const ad = Math.abs(dy), v = (ad > 0.3 ? 0.25 : Math.max(0.03, 0.25 * ad / 0.3)) * dt;
+        R.y += Math.sign(dy) * Math.min(v, ad);
+        if (ad < 0.12 && !R.codeSeen) {
+          R.codeSeen = true;
+          A.log('SENSE', `Floor code #${this.aisleOf(target.y)} under the camera · ${(ad * 100).toFixed(0)} cm to go`);
+        }
+        if (Math.abs(target.y - R.y) < 0.0005) {
+          R.y = target.y;
+          A.log('OK', `Lined up on aisle ${this.aisleOf(target.y)} (within a few mm) · driving onto the rails`);
+        }
+      }
     } else {
-      // move along x first when changing aisles (stay on the concrete path)
-      if (Math.abs(dy) > 0.01 && R.x > 1.8) { R.x -= Math.min(v, R.x - 1.75); }
-      else if (Math.abs(dy) > 0.01) { R.y += Math.sign(dy) * Math.min(v, Math.abs(dy)); }
-      else R.x += Math.sign(dx) * Math.min(v, Math.abs(dx));
+      stage = R.x < 2.75 && dx > 0 ? 'enter' : R.x < 2.75 && dx < 0 ? 'exit' : 'rail';
+      const v = (stage === 'rail' ? fast : 0.12) * dt;
+      if (Math.abs(dx) <= v) {
+        R.x = target.x;
+        if (target === R.overrideTarget || target.stop) { R.phase = 'scan'; R.timer = 0; if (target === R.overrideTarget) R.overrideTarget = null; }
+        else R.wp = (R.wp + 1) % R.route.length;
+      } else R.x += Math.sign(dx) * v;
+    }
+    if (stage !== R.stage) {
+      if (stage === 'exit' && R.stage !== 'exit') A.log('ROBOT', `End of aisle ${this.aisleOf(R.y)} · reversing off the rails (they only go forward and back)`);
+      if (stage === 'shift') { R.codeSeen = false; A.log('ROBOT', `Path mode · mecanum wheels down, grooved wheels 1.5 cm off the pipes · sliding to aisle ${this.aisleOf(target.y)}`); }
+      if (stage === 'rail' && R.stage === 'enter') A.log('ROBOT', `Rail mode · grooved wheels on the pipes of aisle ${this.aisleOf(R.y)}`);
+      R.stage = stage;
     }
   }
 
