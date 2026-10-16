@@ -13,6 +13,10 @@ chamber, a double-door entry room with a footbath, a retractable aluminet shade 
 handover plate onto 4 mecanum wheels, slides sideways to the next aisle, lines up on a floor code read by a camera underneath,
 and drives back onto the pipes. Write-up: why the rails cost ~₹17.7 lakh an acre in Indian polyhouses (no heating pipes).
 
+**R1, a rover for soil-bed polyhouses (Oct 2026):** no rails, 36 cm wide, 6 cameras, 6 spray valves, Pi 5 + AI HAT+.
+Semi-automatic: it scouts and predicts on its own, and every chemical spray needs a human yes. Plus how it avoids carrying
+disease between houses. Design, parts, software and biosecurity: [rover/](rover/). Blender source for every part: [blender/](blender/).
+
 **Build it yourself:** [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
 AI on the farm's Pi 5 + AI HAT+): parts, wiring, code.
 
