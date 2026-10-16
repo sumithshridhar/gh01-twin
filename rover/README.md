@@ -7,6 +7,9 @@ sprays only the plants a human approves. One rover serves several houses and cro
 
 ![R1 review sheet](renders/R1-review-sheet.jpg)
 
+**Build it yourself:** [build/02-r1-rover](../build/02-r1-rover/): the full parts list with prices, every wire, and starter code.
+**The three problems we hadn't solved** (an AI that doesn't know your farm, weak 4G inside, too many alerts): [SOLUTIONS.md](SOLUTIONS.md).
+
 ## The rover (real parts, real sizes)
 
 Modelled part by part in Blender ([`blender/components/rover.py`](../blender/components/rover.py)); prices are estimates
@@ -18,15 +21,15 @@ from Indian listings (Oct 2026), so check each one before buying.
 | 4 × ZS-X11H BLDC driver | one per wheel; skid steer, turns on the spot | 4 × 1,200 |
 | 24 V 30 Ah LiFePO4 + BMS | ~5 h, slung low so the mast can't tip it | 18–25k |
 | Raspberry Pi 5 8 GB + AI HAT+ (26 TOPS) | route, cameras, on-board AI that works offline | 9k + 15k |
-| 7 × Camera Module 3 (+ 2 Arducam 4-channel adapters) | 6 on the mast (3 heights × 2 sides), 1 front | 7 × 3,158 |
+| 7 × USB camera (Arducam 12 MP IMX708 USB-C) + powered USB 3.0 hub | 6 on the mast (3 heights × 2 sides), 1 front; plug and play | 7 × 5,500 |
 | Slamtec RPLIDAR C1 | sees both bed walls, keeps it centred | 7–8k |
 | 24 V diaphragm sprayer pump, 6 solenoid valves, 6 TeeJet ConeJet tips, 15 L tank | one valve per nozzle: sprays one side, one height | ~12k |
 | 2040 / 4040 aluminium extrusion, IP65 box, e-stop, LED beacon, bumpers, 4G router | frame and safety | ~20k |
-| **Total** | | **≈ ₹1.5 lakh** |
+| **Total** | | **≈ ₹1.5–1.7 lakh** |
 
 - **Body:** 36 cm wide, 70 cm long. Battery and tank sit between the wheels, 10 cm off the ground.
 - **Mast:** telescopic, set once per crop: 1.95 m for tomato, 0.68 m for strawberry.
-- **Cameras:** a white LED flash ring on each, so photos look the same at 9 AM and 4 PM. The lowest pair tilts 25° up to see leaf undersides, where whitefly and mites hide.
+- **Cameras:** USB, not the Pi's camera ports: users report the 4-way camera adapter doesn't detect Camera Module 3 on a Pi 5, while the USB version of the same sensor just plugs in. Each has a white LED flash ring, so photos look the same at 9 AM and 4 PM. The lowest pair tilts 25° up to see leaf undersides, where whitefly and mites hide.
 
 ## Software: semi-automatic
 

@@ -58,6 +58,7 @@ gh.SPEC.update({
     "beacon_amber": dict(color=(1.0, 0.55, 0.0), rough=0.2, alpha=0.8, emit=(1.0, 0.5, 0.0), emit_strength=0.0),
     "beacon_red": dict(color=(0.9, 0.05, 0.02), rough=0.2, alpha=0.8, emit=(1.0, 0.05, 0.02), emit_strength=0.0),
     "lfp_blue": dict(color=(0.05, 0.16, 0.42), rough=0.45),
+    "led_green_dock": dict(color=(0.1, 0.9, 0.2), rough=0.3, emit=(0.1, 1, 0.2), emit_strength=4.0),
 })
 
 
@@ -274,7 +275,9 @@ def rover(cid="r1_rover", title="R1 scout-sprayer rover (soil beds, no rails)", 
         bp.box((0.025, 0.30, 0.045), "bumper", bevel=0.01, loc=(sx * 0.365, 0, 0.165))
         for sy in (-1, 1):
             bp.box((0.02, 0.012, 0.02), "anodised", loc=(sx * 0.345, sy * 0.1, 0.165))
-    c.part("bumpers", bp, explode=(0, 0, 0), desc="Rubber bumpers with switches front and back: a touch stops the wheels.")
+    for sy in (-1, 1):                              # charge pads: the dock's spring contacts press on these
+        bp.box((0.004, 0.05, 0.024), "copper", loc=(0.3785, sy * 0.06, 0.165))
+    c.part("bumpers", bp, explode=(0, 0, 0), desc="Rubber bumpers with switches front and back: a touch stops the wheels. Two copper charge pads on the front one.")
     # ── pump + valve manifold (rear deck) ──
     pm = MB()
     pm.box((0.11, 0.085, 0.07), "plastic_black", bevel=0.006, loc=(0, 0, 0.035))     # pump head + motor
@@ -444,4 +447,75 @@ def mist_arch(cid="mist_arch", title="Disinfectant mist arch at the house door")
     return c
 
 
-ALL = [rover, rover_strawberry, wheel_bath, mist_arch]
+def charging_dock(cid="charging_dock", title="Charging dock (drive-on, spring contacts)"):
+    """Just inside the door: the rover drives nose-first between two guide rails until its copper bumper pads press two
+    spring-loaded brass contacts. A 29.2 V 10 A LiFePO4 charger in an IP65 box feeds them. Local frame: the rover arrives
+    along -x (contacts at x = 0, facing +x)."""
+    c = Component(cid, title, "Robot",
+                  summary="Drive-on charging: no plugging in. The rover also syncs its photos here, on the router's Wi-Fi.",
+                  how="Guide rails centre the rover; spring contacts touch the bumper's copper pads; the charger only switches on when "
+                      "both pads read the battery voltage (no live contacts when nothing is docked).",
+                  real="29.2 V 10 A LiFePO4 charger, 2 spring-loaded brass contacts, HDPE base, 40x40 extrusion post",
+                  cost="~₹6-9k (estimate)")
+    bs = MB()
+    bs.box((0.75, 0.62, 0.012), "hdpe_blue", bevel=0.003, loc=(-0.36, 0, 0.006))
+    for sy in (-1, 1):
+        bs.box((0.6, 0.03, 0.05), "hdpe_blue", bevel=0.006, loc=(-0.42, sy * 0.205, 0.037), rot=(0, 0, sy * 4))
+    bs.box((0.12, 0.002, 0.04), "sticker_yellow", loc=(-0.2, -0.3, 0.013), rot=(90, 0, 0))
+    c.part("base", bs, desc="HDPE base with two guide rails that centre the rover.")
+    pt = MB()
+    extrusion(pt, 0.42, 0.04, 0.04, loc=(0.03, 0, 0.21), axis="Z")
+    pt.box((0.05, 0.22, 0.05), "anod_dark", bevel=0.004, loc=(0.01, 0, 0.165))
+    for sy in (-1, 1):
+        pt.box((0.03, 0.03, 0.026), "plastic_black", loc=(-0.02, sy * 0.06, 0.165))
+        pt.cyl(0.006, 0.02, "brass", segs=12, axis="-X", loc=(-0.04, sy * 0.06, 0.165))
+        pt.torus(0.006, 0.0015, "stainless", segs=12, rsegs=6, axis="X", loc=(-0.028, sy * 0.06, 0.165))
+    pt.box((0.16, 0.12, 0.2), "ip65_grey", bevel=0.008, loc=(0.03, 0, 0.53))
+    pt.box((0.002, 0.08, 0.03), "plastic_black", loc=(-0.051, 0, 0.58))
+    pt.text("29.2V 10A LiFePO4", 0.008, "plastic_white", loc=(-0.052, 0, 0.58), rot=(90, 0, -90))
+    pt.cyl(0.006, 0.01, "led_green", segs=12, axis="-X", loc=(-0.052, 0.04, 0.5))
+    cable(pt, [(0.03, 0.0, 0.43), (0.03, 0.03, 0.3), (0.035, 0.02, 0.19)], r=0.004)
+    cable(pt, [(0.06, 0.04, 0.6), (0.1, 0.06, 0.66), (0.1, 0.25, 0.4), (0.1, 0.3, 0.0)], r=0.004)       # mains
+    c.part("post", pt, desc="Post with the two spring-loaded brass contacts at bumper height, and the charger box.")
+    return c
+
+
+def antenna_pole(cid="antenna_pole", title="4G router + LoRa gateway on a pole outside"):
+    """6.5 m GI pole outside the door: an IP65 box with a 4G router (e.g. TP-Link TL-MR100) and a LoRa gateway inside,
+    a flat 4G MIMO panel antenna at the top (above the polyhouse film, which weakens signal), and a fibreglass LoRa antenna."""
+    c = Component(cid, title, "Network",
+                  summary="Puts the internet where the signal is: 4G outside and above the house, Wi-Fi to the dock inside, "
+                          "LoRa for every climate box on the farm.",
+                  real="TP-Link TL-MR100 4G router, 4G LTE MIMO panel antenna, 865-867 MHz LoRa gateway + 3 dBi fibreglass antenna, IP65 box, 50 mm GI pole",
+                  cost="~₹12-18k (estimate)")
+    pl = MB()
+    pl.cyl(0.025, 6.5, "galv", segs=20, z0=0.0)
+    pl.cyl(0.12, 0.1, "concrete", segs=20, z0=-0.02)
+    pl.cyl(0.028, 0.012, "galv", segs=20, z0=6.49)
+    c.part("pole", pl, desc="6.5 m, 50 mm GI pole in a concrete footing: the antenna sits above the roof (~5.9 m).")
+    bx = MB()
+    bx.box((0.22, 0.12, 0.3), "ip65_grey", bevel=0.01, loc=(0, 0, 0))
+    for zz in (-0.08, 0.08):
+        bx.box((0.03, 0.06, 0.02), "galv", loc=(0.08, 0, zz))                                    # pole clamps
+    bx.text("4G + LoRa", 0.02, "plastic_black", loc=(0, -0.061, 0.08), rot=(90, 0, 0), bold=True)
+    for k in range(3):
+        bx.cyl(0.006, 0.015, "plastic_black", segs=10, axis="-Z", loc=(-0.06 + 0.06 * k, 0, -0.15))      # glands
+    c.part("box", bx, loc=(-0.09, 0, 1.6), desc="IP65 box: 4G router + LoRa gateway + a 12 V supply.")
+    an = MB()
+    an.box((0.06, 0.24, 0.24), "plastic_white", bevel=0.012, loc=(0, 0, 0))
+    an.box((0.04, 0.05, 0.05), "galv", loc=(0.05, 0, 0))
+    an.text("LTE", 0.03, "plastic_dark", loc=(-0.031, 0, 0.05), rot=(90, 0, -90), bold=True)
+    c.part("panel_antenna", an, loc=(-0.06, 0, 6.3), rot=(0, 0, 0), desc="4G LTE MIMO panel antenna, above the polyhouse film.")
+    lo = MB()
+    lo.cyl(0.012, 0.6, "plastic_white", segs=14, z0=0.0, r_top=0.009)
+    lo.box((0.04, 0.04, 0.04), "galv", loc=(0, 0, -0.02))
+    c.part("lora_antenna", lo, loc=(0.0, 0.12, 6.5), desc="865 MHz fibreglass LoRa antenna for the climate boxes.")
+    cb = MB()
+    cable(cb, [(-0.09, 0.03, 1.75), (-0.04, 0.04, 3.4), (-0.04, 0.03, 6.2), (-0.06, 0.0, 6.25)], r=0.004)
+    cable(cb, [(-0.09, -0.03, 1.75), (-0.03, -0.03, 3.6), (0.0, 0.08, 6.45), (0.0, 0.12, 6.5)], r=0.004)
+    cable(cb, [(-0.09, 0.0, 1.45), (-0.04, 0.0, 1.0), (-0.03, 0.0, 0.1), (-0.3, 0.0, 0.0)], r=0.005)
+    c.part("cables", cb, desc="Antenna and power cables.")
+    return c
+
+
+ALL = [rover, rover_strawberry, wheel_bath, mist_arch, charging_dock, antenna_pole]

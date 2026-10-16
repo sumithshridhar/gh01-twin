@@ -1,0 +1,31 @@
+# R1 rover settings for one farm. Starter values: measure your own and change them here.
+serial_port: /dev/ttyACM0        # the Arduino Mega (ls /dev/ttyACM*)
+pin: "4826"                      # phone PIN for driving; change it
+web_port: 8080
+
+wheel:
+  diameter_m: 0.254              # 10" tyre
+  pulses_per_rev: 90             # ZS-X11H speed-pulse output per wheel turn; measure: mark the tyre, turn it once by hand, read the count
+photo_every_m: 0.25
+
+cameras:                         # /dev/video* index of each USB camera (v4l2-ctl --list-devices); side L/R, height in m
+  - {name: L1, device: 0, side: left,  height: 0.62}
+  - {name: R1, device: 2, side: right, height: 0.62}
+  - {name: L2, device: 4, side: left,  height: 1.22}
+  - {name: R2, device: 6, side: right, height: 1.22}
+  - {name: L3, device: 8, side: left,  height: 1.82}
+  - {name: R3, device: 10, side: right, height: 1.82}
+
+houses:
+  - {id: 1, name: "House 1", crop: tomato, beds: 10, next_picking: "2026-10-22"}
+  - {id: 2, name: "House 2", crop: strawberry, beds: 15, next_picking: "2026-10-18"}
+
+# Only products listed here can be sprayed, only on the crops listed, and only if their waiting period
+# (days between spraying and picking) ends before the house's next picking. Copy these from the product label.
+products:
+  - {name: "Water (test)", crops: [tomato, strawberry], wait_days: 0}
+  # - {name: "<product on the label>", crops: [tomato], wait_days: 5}
+
+valves: [L1, R1, L2, R2, L3, R3]   # relay order on the Mega (V 0 .. V 5)
+spray_seconds: 1.5
+door_sensor_file: /run/r1/house_occupied   # written by a door/PIR sensor service: "1" = someone inside

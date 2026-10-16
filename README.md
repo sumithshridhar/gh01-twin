@@ -17,7 +17,7 @@ and drives back onto the pipes. Write-up: why the rails cost ~₹17.7 lakh an ac
 Semi-automatic: it scouts and predicts on its own, and every chemical spray needs a human yes. Plus how it avoids carrying
 disease between houses. Design, parts, software and biosecurity: [rover/](rover/). Blender source for every part: [blender/](blender/).
 
-**Build it yourself:** [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
+**Build it yourself:** [Part 2: the R1 rover](build/02-r1-rover/) (parts, every wire, starter code) · [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
 AI on the farm's Pi 5 + AI HAT+): parts, wiring, code.
 
 **Try:**
