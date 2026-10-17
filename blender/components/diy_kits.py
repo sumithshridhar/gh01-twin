@@ -266,7 +266,7 @@ def dc_terminal(mb, M):
     return mb
 
 
-def solenoid_valve(mb, M):
+def solenoid_valve(mb, M, face=-1):
     """12 V 1/2" normally-closed plastic solenoid valve: water flows along +x (arrow), black coil on top with two
     spade terminals. Origin: centre of the body bottom."""
     B(mb, M, "valve_body", 0, 0, 0, 45.0, 40.0, 32.0, bevel=3.0)
@@ -279,11 +279,12 @@ def solenoid_valve(mb, M):
     C(mb, M, "valve_coil", 0, 0, 68.0, 7.0, 3.0, segs=6)
     for x in (-7.0, 7.0):
         B(mb, M, "tin", x, 0, 68.0, 6.3, 0.8, 8.0)
-    B(mb, M, "sticker_white", 0, -15.6, 44.0, 22.0, 0.3, 12.0, rot=(0, 0, 0))
+    f = face                                              # which side shows the label + flow arrow (-1: -y, +1: +y)
+    B(mb, M, "sticker_white", 0, f * 15.6, 44.0, 22.0, 0.3, 12.0, rot=(0, 0, 0))
     mb.add(bm_text("12V DC", 4.0 * MM, 0.2 * MM, "CENTER", True), "plastic_black",
-           M=M @ xform((0, -15.9 * MM, 50.0 * MM), (90, 0, 0)), smooth=False)
+           M=M @ xform((0, f * 15.9 * MM, 50.0 * MM), (90, 0, 0 if f < 0 else 180)), smooth=False)
     arrow = [(-12 * MM, -2 * MM), (6 * MM, -2 * MM), (6 * MM, -5 * MM), (14 * MM, 0), (6 * MM, 5 * MM), (6 * MM, 2 * MM), (-12 * MM, 2 * MM)]
-    mb.prism(list(reversed(arrow)), 0.8 * MM, "plastic_dark", M=M @ xform((0, -20.0 * MM, 14.0 * MM), (90, 0, 0)))
+    mb.prism(list(reversed(arrow)) if f < 0 else arrow, 0.8 * MM, "plastic_dark", M=M @ xform((0, f * 20.0 * MM, 14.0 * MM), (90 if f < 0 else -90, 0, 0)))
     return mb
 
 
@@ -690,4 +691,155 @@ def climate_kit(coll):
     ip65_lid(mb, MB_ @ xform((0, 0, D * MM)), W, H)
     k.add("lid", 4, mb, "Clear lid", "")
     info["box_M"] = MB_
+    return k, info
+
+
+# ─────────────────────────────── Part 3 in a real polyhouse (17 Oct 2026) ───────────────────────────────
+def zone_kit(coll, corner=(0.0, 16.0), inward=1.0, header_end=(0.97, 16.325), bed_y=16.85, bed_h=0.40, sensor_x=2.0):
+    """Part 3 installed in a soil-bed polyhouse (stories/gh01-rover/world.py, house B): the 12 V valve on the feed pipe
+    into one zone's sub-main header (after a hand ball valve on a riser), the box + a weatherproof socket on a plank
+    clamped to the corner GI column, the soil sensor in the first bed of the zone between the two drip rows.
+    The beds' own drip laterals do the watering. Steps: 1 valve + outlet pipe, 2 sensor, 3 plank + box + brain + relay,
+    4 power + wires (+ lid, hidden in the video)."""
+    k = Kit(coll)
+    info = {}
+    cx, cy = corner
+    s = inward                                             # +1: the house is on the +y side of this wall
+    W, H, D = BOXA["W"], BOXA["H"], BOXA["D"]
+    plank_y = cy + s * 0.135
+    face_x = cx + 0.038                                    # the column's inside face
+    # ── static: riser + ball valve (the farm's existing feed), weatherproof socket + conduit ──
+    rx, ry = cx + 0.55, header_end[1] + s * 0.075
+    mb = MB()
+    mb.box((0.12, 0.12, 0.03), "concrete", bevel=0.004, loc=(rx, ry, 0.015))
+    mb.cyl(0.0107, VALVE_Z - 0.03, "galv", segs=24, z0=0.03, loc=(rx, ry, 0))
+    mb.sphere(0.0135, "galv", segs=20, rings=10, loc=(rx, ry, VALVE_Z))
+    mb.cyl(0.0107, 0.03, "galv", segs=24, z0=0.0, loc=(rx, ry, VALVE_Z), axis="X")
+    mb.cyl(0.013, 0.05, "brass", segs=24, z0=0.0, loc=(rx + 0.03, ry, VALVE_Z), axis="X")
+    for xx in (rx + 0.03, rx + 0.068):
+        mb.cyl(0.0145, 0.012, "brass", segs=6, z0=0.0, loc=(xx, ry, VALVE_Z), axis="X")
+    mb.cyl(0.004, 0.012, "brass", segs=12, z0=0.0, loc=(rx + 0.055, ry, VALVE_Z + 0.012))
+    mb.box((0.012, 0.075, 0.004), "ball_red", bevel=0.0015, loc=(rx + 0.055, ry + s * 0.03, VALVE_Z + 0.025))
+    sock = (face_x + 0.025 + 0.035, plank_y, 0.78)
+    mb.box((0.07, 0.12, 0.12), "box_grey", bevel=0.006, loc=sock)
+    for dz in (-0.028, 0.028):
+        mb.box((0.004, 0.05, 0.045), "plastic_white", bevel=0.003, loc=(sock[0] + 0.036, sock[1], sock[2] + dz))
+    mb.cyl(0.009, 2.6, "pvc_grey", segs=14, z0=sock[2] + 0.06, loc=(face_x + 0.02, plank_y + s * 0.04, 0))     # conduit
+    ob = mb.build("zone_static")
+    coll.objects.link(ob)
+    info["riser"] = (rx, ry)
+    # ── step 1: the valve, its outlet pipe into the header ──
+    VX = rx + 0.08 + 0.0425
+    Mv = xform((VX, ry, VALVE_Z - 0.016))                  # flow along +x, into the house
+    mb = MB()
+    solenoid_valve(mb, Mv, face=1 if s > 0 else -1)          # label + arrow towards the house
+    k.add("valve", 1, mb, "12 V water valve", "normally closed · arrow → beds · ₹250")
+    info["valve_M"] = Mv
+    mb = MB()
+    x0 = VX + 0.03
+    mb.cyl(0.013, 0.018, "pvc_grey", segs=6, z0=0.0, loc=(x0, ry, VALVE_Z), axis="X")
+    hx, hy = header_end
+    pts = [(x0 + 0.018, ry, VALVE_Z), (x0 + 0.08, ry, VALVE_Z), (hx - 0.12, ry, 0.12), (hx - 0.06, hy, 0.025), (hx - 0.02, hy, 0.02)]
+    mb.sweep(pts, 0.0105, "pvc_grey", segs=14, fillet=0.06)
+    mb.cyl(0.037, 0.05, "pvc_grey", segs=24, z0=0.0, loc=(hx - 0.03, hy, 0.005), axis="X")         # reducer onto the header
+    k.add("outlet", 1, mb, "1/2 inch pipe to the zone header", "1 valve = 1 zone (~4 beds)")
+    # ── step 2: the sensor between the drip rows of the zone's first bed ──
+    Ms = xform((sensor_x, bed_y, bed_h + 0.004 - 0.019), (0, -90, 0)) @ xform((0, 0, -0.8 * MM))
+    mb = MB()
+    soil_sensor(mb, Ms)
+    k.add("sensor", 2, mb, "Soil sensor", "capacitive · nothing to rust · ₹60")
+    info["sensor_top"] = P(Ms, *SOIL_JST)
+    # ── step 3: plank on the column, box, expansion board, ESP32, relay ──
+    mb = MB()
+    mb.box((0.025, 0.24, 0.8), "wood_post", bevel=0.003, loc=(face_x + 0.0125, plank_y, 0.98))
+    for z in (0.72, 1.28):
+        mb.box((0.115, 0.30, 0.03), "steel_dark", loc=(cx + 0.012, cy + s * 0.105, z))
+    k.add("plank", 3, mb, "Plank on the column", "2 steel straps · no drilling")
+    rot = (90, 0, 90 if s > 0 else -90)
+    origin = (face_x + 0.025, plank_y, 1.2)
+    MB_ = xform(origin, rot)
+    mb = MB()
+    ip65_base(mb, MB_, W, H, D, glands=(-45.0, 0.0, 45.0))
+    k.add("box", 3, mb, "IP65 box", "150 × 110 × 70 · on the column")
+    Me = MB_ @ xform((-30 * MM, 14 * MM, 8 * MM))
+    mb = MB()
+    expansion_board(mb, Me)
+    for sx_ in (-1, 1):
+        for sy_ in (-1, 1):
+            C(mb, Me, "plastic_white", sx_ * (EXP_W / 2 - 3.4), sy_ * (EXP_H / 2 - 3.4), -5.0, 2.5, 5.0, segs=12)
+    k.add("expansion", 3, mb, "Expansion board", "12 V in · a G-V-S pin for every pin · ₹120")
+    Mesp = Me @ xform((EX0 * MM, 0, ESP_ON_EXP_Z * MM))
+    mb = MB()
+    esp32_devkit(mb, Mesp)
+    k.add("esp32", 3, mb, "ESP32", "a ₹450 computer with Wi-Fi")
+    Mr = MB_ @ xform((42 * MM, 26 * MM, 8 * MM))
+    mb = MB()
+    relay_module(mb, Mr)
+    for sx_ in (-1, 1):
+        for sy_ in (-1, 1):
+            C(mb, Mr, "plastic_white", sx_ * 21.0, sy_ * 9.0, -5.0, 2.0, 5.0, segs=12)
+    k.add("relay", 3, mb, "Relay", "a switch the ESP32 can press · ₹40")
+    Mt = MB_ @ xform((30 * MM, -28 * MM, 8 * MM), (0, 0, 180))
+    mb = MB()
+    dc_terminal(mb, Mt)
+    k.add("dc_term", 4, mb, "DC screw terminal", "12 V for the valve · no soldering")
+    # ── step 4: adapter in the socket, cables ──
+    mb = MB()
+    Mad = Matrix.Translation((sock[0] + 0.036, sock[1], sock[2] - 0.028)) @ Matrix(((0, 0, 1, 0), (0, -1, 0, 0), (1, 0, 0, 0), (0, 0, 0, 1)))  # pins into the lower socket, cable up
+    adapter_12v(mb, Mad)
+    k.add("adapter", 4, mb, "12 V 2 A adapter", "₹200 · in the house's socket")
+    gl = {g: P(MB_, g, -H / 2 - 13.0, D / 2) for g in (-45.0, 0.0, 45.0)}
+    glin = {g: P(MB_, g, -H / 2 + 6.0, D / 2) for g in (-45.0, 0.0, 45.0)}
+    jack = P(Me, -36.0, -16.0, 7.1)
+    term_in = P(Mt, -18.0, 0, 5.0)
+    split = P(MB_, -45.0, -30.0, 30.0)
+    ad_out = P(Mad, 35.0, 0, 18.0)
+    mb = MB()
+    mb.sweep([tuple(ad_out), tuple(ad_out + Vector((0.01, 0, 0.04))), tuple(gl[-45.0] + Vector((0.01, 0, -0.12))), tuple(gl[-45.0]),
+              tuple(glin[-45.0]), tuple(split)], 0.0018, "cable", segs=10, fillet=0.03)
+    mb.add(bm_box(0.012, 0.016, 0.012), "plastic_black", M=Matrix.Translation(split))
+    for tgt in (jack, term_in):
+        mb.sweep([tuple(split), tuple((split + tgt) / 2 + Vector((0.008, 0, 0))), tuple(tgt)], 0.0015, "cable", segs=10, fillet=0.012)
+    k.add("power_wires", 4, mb, "12 V cable", "one plug for the ESP32 · one for the valve")
+    mb = MB()
+
+    def gw(name, row, side="L"):
+        x, y = gvs(name, row, side)
+        return P(Me, x, y, GVS_TOP + 1.0)
+    out_n = (MB_.to_3x3() @ Vector((0, 0, 1))).normalized()     # out of the box (world)
+    rp = {kk: P(Mr, v[0], v[1], 1.6 + 8.5 + 1.0) for kk, v in RELAY_PIN.items()}
+    for (pin, row), rk, m in ((("D26", "V"), "DC+", "wire_red3"), (("D26", "G"), "DC-", "wire_black3"), (("D26", "S"), "IN", "wire_yellow3")):
+        a, b = gw(pin, row), rp[rk]
+        wire(mb, [a, a + out_n * 0.012, (a + b) / 2 + out_n * 0.03, b + out_n * 0.012, b], m)
+    tp = P(Mt, 6.0, 2.5, 10.0)
+    tm = P(Mt, 6.0, -2.5, 10.0)
+    com = P(Mr, *RELAY_TERM["COM"], 6.0)
+    no = P(Mr, *RELAY_TERM["NO"], 6.0)
+    mb.sweep([tuple(tp), tuple(tp + out_n * 0.01), tuple(com + out_n * 0.01), tuple(com)], 0.0009, "wire_red3", segs=8, fillet=0.006)
+    k.add("box_wires", 4, mb, "3 short wires", "ESP32 pin D26 → relay")
+    mb = MB()
+    sp = [P(Mv, *q) for q in VALVE_SPADES]
+    for a, q, m, dd in ((no, sp[0], "wire_red3", 0.004), (tm, sp[1], "wire_black3", -0.004)):
+        pts = [a, a + out_n * 0.012, glin[45.0] + Vector((0, dd, 0)), gl[45.0], gl[45.0] + Vector((0.01, 0, -0.15)),
+               Vector((face_x + 0.05, plank_y + s * 0.13, 0.5)), q + Vector((-0.06, 0, 0.05)), q + Vector((0, 0, 0.012)), q]
+        mb.sweep([tuple(p) for p in pts], 0.0011, m, segs=8, fillet=0.02)
+    k.add("valve_wires", 4, mb, "Valve wires", "through the relay's NO and COM")
+    mb = MB()
+    st_ = info["sensor_top"]
+    foot_y = bed_y - s * 0.35
+    path = [st_, st_ + Vector((0, 0, 0.01)), Vector((sensor_x - 0.05, bed_y - s * 0.31, bed_h + 0.02)), Vector((sensor_x - 0.08, foot_y, 0.012)),
+            Vector((sensor_x - 0.3, cy + s * 0.15, 0.008)), Vector((face_x + 0.06, cy + s * 0.15, 0.008)), Vector((face_x + 0.05, cy + s * 0.15, 0.6)),
+            gl[0.0] + Vector((0.01, 0, -0.12)), gl[0.0], glin[0.0]]
+    mb.sweep([tuple(p) for p in path], 0.0016, "cable", segs=8, fillet=0.03)
+    c0 = glin[0.0]
+    for row, m in (("G", "wire_black3"), ("V", "wire_red3"), ("S", "wire_yellow3")):
+        b = gw("D34", row)
+        wire(mb, [c0, c0 + out_n * 0.006 + Vector((0, 0, 0.01)), (c0 + b) / 2 + out_n * 0.02, b + out_n * 0.012, b], m, ends=(False, True))
+    k.add("sensor_cable", 4, mb, "Sensor cable", "G-V-S onto pin D34")
+    mb = MB()
+    ip65_lid(mb, MB_ @ xform((0, 0, D * MM)), W, H)
+    k.add("lid", 4, mb, "Clear lid", "")
+    info["box_M"] = MB_
+    info["box_c"] = P(MB_, 0, 0, D / 2)
+    info["sock"] = Vector(sock)
     return k, info
