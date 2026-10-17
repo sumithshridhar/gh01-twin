@@ -55,25 +55,32 @@ export async function build(GH) {
   const xa = meta.x0 + 0.6, xb = meta.x1 - 0.8;
   const drive = { x: xa, dir: 1, wait: 0 };
   const api = { root, meta, rover, paused: false };
+  let keep = null;
   api.update = (dt) => {
-    if (!root.visible || !rover || api.paused) return;
+    if (!root.visible) return;
+    // GH-01's simulation keeps switching its own flow lines on; keep everything of GH-01 hidden while we're shown
+    for (const o of GH.scene.children) if (!keep.has(o) && !o.isLight && o.visible) { hidden.push(o); o.visible = false; }
+    if (!rover || api.paused) return;
     if (drive.wait > 0) { drive.wait -= dt; return; }
     drive.x += drive.dir * 0.25 * dt;                 // 0.25 m/s: a photo of every plant, both sides
     if (drive.x > xb || drive.x < xa) { drive.x = Math.min(xb, Math.max(xa, drive.x)); drive.dir *= -1; drive.wait = 2.0; }
     rover.position.copy(B(drive.x, pathY, 0));
   };
   const shadow0 = { ...world.sun.shadow.camera };
-  const hidden = [];
+  const hidden = [], bloom0 = {};
   api.show = (on) => {
     if (on === root.visible) return;
+    const bl = GH.bloom;
     if (on) {
-      const keep = new Set([root, world.sky, world.sun, world.sun.target, world.hemi, world.moon, world.backdrop]);
+      if (bl) { bloom0.t = bl.threshold; bloom0.s = bl.strength; bl.threshold = 2.2; bl.strength = 0.12; }   // the bright film + steel made bloom glow cyan
+      keep = new Set([root, world.sky, world.sun, world.sun.target, world.hemi, world.moon, world.backdrop]);
       for (const o of GH.scene.children) if (!keep.has(o) && o.visible && !o.isLight) { hidden.push(o); o.visible = false; }
       const sc = world.sun.shadow.camera;
       Object.assign(sc, { left: -10, right: 10, top: 10, bottom: -10, far: 140 });
       sc.updateProjectionMatrix();
       world.sun.target.position.copy(B(6, 0, 0));
     } else {
+      if (bl && bloom0.t !== undefined) { bl.threshold = bloom0.t; bl.strength = bloom0.s; }
       hidden.splice(0).forEach((o) => { o.visible = true; });
       const sc = world.sun.shadow.camera;
       Object.assign(sc, { left: shadow0.left, right: shadow0.right, top: shadow0.top, bottom: shadow0.bottom, far: shadow0.far });
