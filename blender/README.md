@@ -5,7 +5,7 @@ prices come from [`tools/products.py`](../tools/products.py). The scripts are he
 file is needed.
 
 - `lib/gh.py`: the mesh builder, materials, and `Component` (root + named parts, with explode offsets and metadata that survive glTF export).
-- `components/*.py`: greenhouse, climate, irrigation, fertigation, sensors, control, plants, robot, farm, scale-up, tutorial bench, **rover (R1)**, **soilhouse (soil beds, mulch, drip, strawberry)**.
+- `components/*.py`: greenhouse, climate, irrigation, fertigation, sensors, control, plants, robot, farm, scale-up, tutorial bench, **rover (R1)**, **soilhouse (soil beds, mulch, drip, strawberry)**, **rover_kit** (R1 as the pieces you buy), **diy_kits** (Build Parts 3 and 4: ESP32, expansion board, soil sensor, relay, 12 V valve, drip kit, SHT30 probe, saucer sun shield, IP65 boxes).
 - `build_greenhouse.py`: builds the twin (`--web 1` exports the glTF the website loads).
 - `render_one.py`, `render_rover.py`: studio renders of any component.
 
