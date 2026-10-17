@@ -20,6 +20,8 @@ disease between houses. Design, parts, software and biosecurity: [rover/](rover/
 **Build it yourself:** [Part 3: plants that water themselves](build/03-auto-watering/) (ESP32 + soil sensor + a 12 V valve on one drip zone, ≈ ₹1,750, no soldering) · [Part 2: the R1 rover](build/02-r1-rover/) (parts, every wire, starter code) · [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
 AI on the farm's Pi 5 + AI HAT+): parts, wiring, code.
 
+**New: 🗺 Scenes** (bottom bar): the R1 rover in a soil-bed strawberry polyhouse with the Part 3 watering kit, the Part 1 pest-camera bench, a melon house, a 1-hectare glasshouse. Direct link: `?scene=rover`.
+
 **Try:**
 - Click any machine, sensor or plant to explode it into its parts, with a blueprint.
 - Run the failure tests (bottom left):
