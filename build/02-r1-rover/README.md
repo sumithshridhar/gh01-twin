@@ -150,6 +150,20 @@ r1/
    `python3 r1_spray.py --house 1 --valve R2 --product "Water (test)" --approved-by "<your name>"`.
    Try to break each lock on purpose (wrong crop, picking tomorrow, door sensor "1", e-stop pressed): each must refuse.
 
+## Test the firmware on your laptop (no Arduino needed)
+
+1. **Does it compile?** With [arduino-cli](https://arduino.github.io/arduino-cli/):
+   `arduino-cli core install arduino:avr`, then
+   `arduino-cli compile --fqbn arduino:avr:mega --warnings all r1/firmware/r1_io`
+   (18 Oct 2026: 0 warnings in r1_io.ino, 8,722 bytes = 3 % of the Mega's flash, 304 bytes = 3 % of its RAM).
+2. **Does it behave?** `r1/tests` compiles the REAL `r1_io.ino` against a fake Arduino (`Arduino.h`: a fake clock, pins and
+   serial port) and plays the Pi: `pip install ziglang` (a C++ compiler), then `bash r1/tests/run_test.sh`.
+   It checks: no driving until enabled, a smooth start, **the wheels stop ~300 ms after the Pi goes quiet** (302 ms),
+   the e-stop stops them at once (1 ms) even while the Pi keeps sending, a valve only opens when spraying is armed, and
+   the watchdog closes it again. 14 / 14 pass.
+
+These test the code, not the wiring: the bench test (wheels off the ground, e-stop, water only) still comes before the field.
+
 ## Safety
 
 - The e-stop and bumpers work in hardware. Test them every morning.
