@@ -76,6 +76,28 @@ Why each part is wired like that:
 
 Each wake-up takes ~40 s: boot, photo with the ring on, upload, shutdown. With 24 wake-ups a day that's ~0.35 Wh, so one 11 Wh cell lasts about 3 weeks. Swap the cell when you change the card.
 
+## Test it on your laptop (no Pi needed)
+
+`tests/` runs the real `trap_cam.py` with a fake camera and LED pin (`tests/fakes`) and a real little web server standing in
+for the farm's Pi 5. Each test is one wake-up of the trap:
+
+```
+pip install pytest
+python -m pytest tests -v
+```
+
+| Test | What it checks |
+|---|---|
+| day wake (11:00) | light on → photo → light off → upload → power off |
+| night wake (22:00) | no photo, no light, straight back off |
+| Wi-Fi down | the photo waits in the outbox, the Pi still powers off within seconds |
+| next wake | the waiting photos go first, oldest first |
+| camera error | the light goes off **and the Pi still powers off** |
+
+The last test found a real bug (18 Oct 2026): a camera error (a loose ribbon) crashed the script before `poweroff`, so the
+Pi stayed on and the timer never got DONE: the battery would have drained in under a day instead of ~3 weeks. Now a failed
+photo is only logged and the power-off always runs (`trap_cam.py`, `main()`). All 5 pass.
+
 ## Where the AI runs (and why)
 
 | Where | Verdict |

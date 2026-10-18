@@ -52,18 +52,26 @@ def upload(path):
 
 
 def main():
-    OUTBOX.mkdir(parents=True, exist_ok=True)
-    now = datetime.datetime.now()
-    if now.hour in DAY_HOURS:
-        take_photo(OUTBOX / f"{TRAP_ID}_{int(now.timestamp())}.jpg")
-    for p in sorted(OUTBOX.glob("*.jpg")):           # oldest first; stop at the first failure (no Wi-Fi?)
-        try:
-            if not upload(p):
+    # 18 Oct 2026, found by tests/test_trap_cam.py: a camera error (a loose ribbon) used to crash the script before the
+    # poweroff, so the Pi stayed on and the TPL5110 never got DONE: the battery would drain in about a day, not 3 weeks.
+    # Now a failed photo is only logged, and the poweroff always runs.
+    try:
+        OUTBOX.mkdir(parents=True, exist_ok=True)
+        now = datetime.datetime.now()
+        if now.hour in DAY_HOURS:
+            try:
+                take_photo(OUTBOX / f"{TRAP_ID}_{int(now.timestamp())}.jpg")
+            except Exception as e:                   # noqa: BLE001  (the camera can fail in many ways; the power must still go off)
+                print(f"photo failed: {e}", flush=True)
+        for p in sorted(OUTBOX.glob("*.jpg")):       # oldest first; stop at the first failure (no Wi-Fi?)
+            try:
+                if not upload(p):
+                    break
+                p.unlink()
+            except OSError:
                 break
-            p.unlink()
-        except OSError:
-            break
-    subprocess.run(["sudo", "poweroff"], check=False)
+    finally:
+        subprocess.run(["sudo", "poweroff"], check=False)   # always: the timer only cuts the power after this
 
 
 if __name__ == "__main__":
