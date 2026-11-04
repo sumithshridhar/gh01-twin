@@ -10,6 +10,10 @@ export class Sim {
   constructor(app, data) {
     this.app = app;
     this.data = data;
+    // 4 Nov 2026: °C per minute that 1 kW of heat per m² of floor gives the house air: 1000 W × 45 m² × 60 s ÷
+    // (ρ·cp 1.2 × 1006 J/m³K × 162 m³: the 9 × 5 m house, 3 m to the gutter, 4.2 m to the ridge) = 13.8
+    const H = data.house ?? { L: 9, W: 5, GH: 3, RH: 4.2 };
+    this.heatPerKW = (1000 * H.L * H.W * 60) / (1.2 * 1006 * H.L * H.W * (H.GH + (H.RH - H.GH) / 2));
     this.speed = 60;
     this.running = true;
     this.hist = [];
@@ -205,6 +209,18 @@ export class Sim {
     if (w.uvI >= 80 && f.uvBad) { f.uvBad = false; w.uvOK = true; A.alarm(null); A.flagComponent('drain_recycle', null); A.log('OK', 'UV lamp back · recycling on'); }
   }
 
+  // 4 Nov 2026: the sun's heat in the house air, °C/min: 0.8 of the sunlight absorbed, minus the share the crop spends on
+  // transpiration, over the floor area. Before this, those kW per m² of floor were used directly as °C/min, so the sun was
+  // 13.8× too weak: at a clear noon (900 W/m²) both fans + the wet pad left the air only 0.3 °C above the pad. Fan-pad
+  // guides expect about 3–4 °C from pad to fans: 8 cfm per ft² of floor (≈ 146 m³/h per m²) gives exhaust air 7–8 °F above
+  // the pad air (Bucklin, Leary, McConnell & Wilkerson, "Fan and Pad Greenhouse Evaporative Cooling Systems", UF/IFAS EDIS
+  // CIR1135). Rise over the supply air at 900 W/m² now (tools/check_solar_gain.mjs): vents only 6.7 °C, one fan 4.0,
+  // both fans 2.4, both fans + wet pad 3.8 (was 0.9 / 0.4 / 0.2 / 0.3). The climate controller uses the same function.
+  sunGain(solar, vpd) {
+    const sun = solar / 1000;
+    return this.heatPerKW * (sun * 0.8 - sun * 0.3 * (0.4 + vpd) * 0.6);
+  }
+
   get readings() {
     const i = this.inn, T = i.T;
     const RH = clamp((i.e / es(T)) * 100, 5, 100);
@@ -248,7 +264,7 @@ export class Sim {
     const eSup = eOut + pw * (Math.min(es(TsupFull) * 0.9, eOut + 1.4) - eOut);
     const vpd = Math.max(0, es(i.T) - i.e);
     const sun = o.solar / 1000;
-    const gain = sun * 0.8 - sun * 0.3 * (0.4 + vpd) * 0.6 - (a.fog ? 0.12 : 0) + (a.led ? 0.03 : 0);
+    const gain = this.sunGain(o.solar, vpd) + this.heatPerKW * (-(a.fog ? 0.12 : 0) + (a.led ? 0.03 : 0));
     const Teq = Tsup + gain / k;
     i.T = Teq + (i.T - Teq) * Math.exp(-k * dt);
     const transp = sun * 0.1 * (0.3 + vpd) + 0.004;
@@ -452,11 +468,14 @@ export class Sim {
       const UP = [26.8, 28.2, 28.2], DOWN = [25.6, 27.0, 26.0];
       const now = a.pad ? 3 : a.fans;
       // the pad stays on while the outside air is too hot to do without it (what the house would reach on both fans
-      // alone); before 7 Oct 2026 it went off as soon as the pad had cooled the house, so it flipped every 10 min
-      const noPadT = o.T + (o.solar / 1000) * 0.8 / ((1.5 + 110) / 60);
+      // alone); before 7 Oct 2026 it went off as soon as the pad had cooled the house, so it flipped every 10 min.
+      // 4 Nov 2026: every stage now steps down only if the house would settle 0.5 °C under the threshold that brings it back
+      // (same physics as step(): one stage lower = vents wide open, one fan, or both fans with a dry pad). Once the sun's
+      // heat was fixed, one fan cools 2–3 °C more than the vents, and the 1.2 °C band stepped 0↔1 every 5 min.
+      const settleAt = (s) => o.T + this.sunGain(o.solar, r.vpd) / ((1.5 + (s === 0 ? 25 : 55 * s)) / 60);
       let stage = now;
       if (stage < 3 && (Tctl > UP[stage] || (stage === 0 && pre)) && (stage < 2 || r.RH < 88)) stage++;
-      else if (stage > 0 && ((Tctl < DOWN[stage - 1] && (stage < 3 || noPadT < UP[2] - 0.5)) || (stage === 3 && r.RH > 92)) && !(stage === 1 && pre)) stage--;
+      else if (stage > 0 && ((Tctl < DOWN[stage - 1] && settleAt(stage - 1) < UP[stage - 1] - 0.5) || (stage === 3 && r.RH > 92)) && !(stage === 1 && pre)) stage--;
       const minHold = stage === 3 || now === 3 ? 10 : 5;                  // the pad pump gets a longer minimum run
       if (stage !== now && this.t - this.stageSince < minHold && !(stage > now && Tctl >= 30)) stage = now;
       if (stage !== now) this.stageSince = this.t;
