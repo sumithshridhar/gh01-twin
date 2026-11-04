@@ -15,7 +15,7 @@ bolts, plug-in electronics.
 Metric hex keys (2.5–6 mm), a 10/13 mm spanner, a screwdriver, a wire stripper, a crimper for ring terminals and ferrules,
 a multimeter, a hacksaw (if the shop won't cut the bars), and a cordless drill for 4 holes. That's all.
 
-## Parts (Indian prices, Oct 2026; estimates, check before buying)
+## Parts (Indian prices, Nov 2026; estimates, check before buying)
 
 | # | Part | Why | ≈ ₹ |
 |---|---|---|---|
@@ -28,13 +28,13 @@ a multimeter, a hacksaw (if the shop won't cut the bars), and a cordless drill f
 | 7 | 60 A MIDI fuse + holder, red battery isolator switch, 24 V DC 100 A contactor | the power chain | 2,500 |
 | 8 | 22 mm emergency stop (NC), 2 × bumper microswitches (NC) | they cut the motor power without any software | 600 |
 | 9 | 24→5 V 5 A converter (Pi), 24→12 V 3 A converter (USB hub), 24→5 V 3 A converter (relay board) | three clean supplies | 1,800 |
-| 10 | Raspberry Pi 5 8 GB + 27 W cooler + 64 GB microSD | the brain | 8,500 |
-| 11 | Raspberry Pi AI HAT+ 26 TOPS (Hailo-8) | checks every photo on the rover, no internet | 14,999 |
-| 12 | Arduino Mega 2560 (or clone) + USB cable | talks to the motor drivers, valves and switches | 900 |
-| 13 | 7 × USB camera: Arducam 12 MP IMX708 USB-C UVC (66°) | 6 on the mast, 1 at the front; plug and play | 7 × 5,500 |
+| 10 | Raspberry Pi 5 8 GB + 27 W cooler + 64 GB microSD | the brain | 24,000 |
+| 11 | Raspberry Pi AI HAT+ 26 TOPS (Hailo-8) | checks every photo on the rover, no internet | 11,300 |
+| 12 | Arduino Mega 2560 (or clone) + USB cable | talks to the motor drivers, valves and switches | 1,200 |
+| 13 | 7 × USB camera: Arducam 12 MP IMX708 USB-C UVC (66°) | 6 on the mast, 1 at the front; plug and play | 7 × 9,200 |
 | 14 | 7-port powered USB 3.0 hub (12 V input) | one cable from the mast to the Pi | 2,000 |
 | 15 | 7 × white LED ring 12 V + 7 × IP67 aluminium camera box with glass | the same light for every photo | 4,000 |
-| 16 | Slamtec RPLIDAR C1 | sees both bed walls, keeps the rover in the middle | 7,000–13,000 |
+| 16 | Slamtec RPLIDAR C1 | sees both bed walls, keeps the rover in the middle | 6,100–9,800 |
 | 17 | 15–16 L HDPE tank + 24 V diaphragm pump (~100 psi class) + inline filter | the sprayer | 5,000 |
 | 18 | 6 × 24 V 1/4" 2-way normally-closed solenoid valve | one valve per nozzle | 6 × 600 |
 | 19 | 6 × TeeJet ConeJet TXA8001VK hollow-cone tip + Quick TeeJet cap and body | a fine cone that wraps the leaf | 6 × 700 |
@@ -45,13 +45,21 @@ a multimeter, a hacksaw (if the shop won't cut the bars), and a cordless drill f
 | 24 | 4 mm aluminium deck plate 700 × 235 mm, 2 mm tray 640 × 170 mm, rubber bumper strip | deck and tray | 2,500 |
 | 25 | 29.2 V 10 A LiFePO4 charger + 2 spring contacts + 2 copper pads | the drive-on dock | 6,000 |
 | 26 | Wire: 6 mm² red/black (power), 2.5 mm² (motors, 3 colours), 0.5 mm² (signals); ferrules, ring terminals | | 2,500 |
-| | **Total** (depends mostly on the battery and lidar seller; ₹6k of it is the dock) | | **≈ ₹1.5–1.7 lakh** |
+| | **Total** (depends mostly on the battery and lidar seller; ₹6k of it is the dock) | | **≈ ₹2.0–2.1 lakh** |
+
+Prices checked on 4 Nov 2026 (web search; changed lines only, the rest are the Oct 2026 estimates):
+Pi 5 8 GB ₹21,999 ([Robocraze](https://robocraze.com/products/raspberry-pi-5-8gb); ₹22,799 on Amazon.in, [price tracker](https://pricehistory.app/p/raspberry-pi-5-8gb-ram-wifi-bluetooth-h6loew2h)) + cooler ₹499 ([Indian Hobby Center](https://indianhobbycenter.com/products/pi-5-active-cooler)) + 64 GB card ₹1,450 ([KSP](https://kspelectronics.in/product/official-raspberry-pi-5-active-cooler/)) ·
+AI HAT+ 26 TOPS ₹11,309 ([Robocraze](https://robocraze.com/products/official-raspberry-pi-ai-hat-26-tops); ₹11,800 at [Makestore](https://www.makestore.in/product/official-raspberry-pi-ai-hat-26-tops/)) ·
+Mega clone ₹1,052 ([Robocraze](https://robocraze.com/products/arduino-mega-2560-r3-board-compatible-with-arduino)) ·
+Arducam USB IMX708 ₹9,238 ([Amazon.in](https://www.amazon.in/Arducam-IMX708-Fixed-Focus-Camera-Module/dp/B0CJF1NYNP), the only rupee listing we found) ·
+RPLIDAR C1 ₹6,099 ([Tannatech](https://tannatechbiz.com/rplidar-c1-360-degree-laser-scanner.html)) to ₹9,800 ([ThinkRobotics](https://thinkrobotics.com/products/slamtec-rplidar-c1-laser-ranging-sensor)).
+Still about right: hub motors ([Robokits](https://robokits.co.in/e-bike/hub-motor/10inch-bldc-hub-motor-with-24v-350w-controller-and-throttle), ₹6,250), ZS-X11H ([Probots](https://probots.co.in/zs-x11h-400w-bldc-3-phase-brushless-motor-controller-6v-60v-pwm-hall-driver-module.html), ₹999), solenoid valve ([Robu](https://aws.robu.in/?p=975728), ₹597), 24 V 30 Ah LiFePO4 (IndiaMART, ₹10,800–14,750 before GST; a ≥ 50 A BMS costs more).
 
 Time: about a weekend (~7–8 hours) once the parts are in hand.
 
 Changed from the first design (16 Oct): **USB cameras instead of Camera Module 3 + a 4-way adapter.** Users report that
 the Arducam B012001 multi-camera adapter doesn't detect IMX708 cameras on a Pi 5 running Bookworm. The USB version of the
-same sensor just plugs in. It costs ~₹8k more, saves a weekend.
+same sensor just plugs in. It costs ~₹34k more at Nov 2026 Amazon.in prices (7 × ₹9,200), saves a weekend.
 
 ## Build steps (what the video shows)
 

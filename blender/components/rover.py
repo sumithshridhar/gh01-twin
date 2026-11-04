@@ -8,13 +8,13 @@ Real parts (prices are estimates from Indian listings, Oct 2026; confirm before 
   4 x 10" 24 V 350 W brushless hub motor, 10 x 2.125 pneumatic tyre ............ ~₹6,300 each (Raceway Impex listing)
   4 x ZS-X11H BLDC driver (6-60 V, 400 W) ........................................ ~₹1,200 each
   24 V 30 Ah LiFePO4 pack with BMS ............................................... ~₹18-25k
-  Raspberry Pi 5 8 GB + AI HAT+ 26 TOPS (Hailo-8) ................................ ~₹9k + ₹14,999 (Probots)
+  Raspberry Pi 5 8 GB + AI HAT+ 26 TOPS (Hailo-8) ................................ ~₹24k + ₹11.3k (4 Nov 2026)
   7 x Raspberry Pi Camera Module 3 (6 on the mast, 1 Wide at the front) .......... ₹3,158 each
   2 x Arducam 4-channel multi-camera adapter (Pi 5 has 2 camera ports) ........... ~₹4k each
   Slamtec RPLIDAR C1 (55.6 x 55.6 x 41.3 mm) ..................................... ~₹7-8k
   24 V diaphragm sprayer pump (Seaflo 21-series class), 6 x 24 V 1/4" solenoid valves, 6 x TeeJet ConeJet hollow-cone tips
   15 L flat HDPE tank, 40x40 / 20x40 aluminium extrusion, IP65 ABS box, e-stop, LED beacon, bumpers, 4G router
-  Total ≈ ₹1.5 L in parts.
+  Total ≈ ₹1.5 L in parts (first design). 4 Nov 2026, with USB cameras: ≈ ₹2.0–2.1 L, see build/02-r1-rover.
 
 Local frame: +X = forward, ±Y = the two beds, z = 0 on the path floor. Wheel centres at x ±0.24, y ±0.145.
 """
