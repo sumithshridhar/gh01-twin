@@ -1,9 +1,18 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
-<title>GH-01 Twin</title>
-<meta name="description" content="GH-01: an interactive 3D digital twin of an AI + robotics tomato greenhouse. Click any part to explode it, run failure tests, watch the AI suggest and the safety PLC decide.">
+<title>GH-01 · AI + robot tomato greenhouse (3D digital twin)</title>
+<meta name="description" content="GH-01: a 3D digital twin of an AI + robotics tomato greenhouse. Tap any part to explode it, run failure tests, watch the AI suggest and the safety PLC decide. Design stage: nothing is built yet.">
+<link rel="canonical" href="https://sumithshridhar.github.io/gh01-twin/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230A1211'/%3E%3Ctext x='32' y='45' font-family='Arial Narrow,Arial,sans-serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23F2C230'%3EGH%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0A1211">
 <meta property="og:title" content="GH-01 · a greenhouse that runs itself (digital twin)">
 <meta property="og:description" content="Click any part to explode it, run failure tests, and watch the AI suggest while a safety PLC decides. Design stage: not built yet.">
 <meta property="og:image" content="https://sumithshridhar.github.io/gh01-twin/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="3D render of the GH-01 greenhouse design and its farm">
+<meta property="og:site_name" content="GH-01 digital twin">
 <meta property="og:url" content="https://sumithshridhar.github.io/gh01-twin/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -172,7 +181,9 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
   transition:opacity .8s}
 #loading.done{opacity:0;pointer-events:none}
 .ld{width:min(440px,86vw);display:grid;gap:14px}
-.ld b{font:700 64px/0.9 var(--display);color:var(--sun);letter-spacing:.02em}
+.ld h1{margin:0;font:700 64px/0.9 var(--display);color:var(--sun);letter-spacing:.02em}
+.ld small{color:var(--muted);font-size:12.5px}
+.ld a{color:var(--water)}
 .ld p{margin:0;color:var(--muted)}
 .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
 .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--leaf),var(--sun));transition:width .25s}
@@ -191,22 +202,25 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 #app.focus::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at 35% 50%,transparent 45%,rgba(2,8,12,.55) 100%)}
 @media (max-width:1100px){.feed{width:280px}.left{width:190px}.scen{width:190px}}
 @media (max-width:820px){
-  .left,.feed,.chain,#outside,.brand span,label[for=tod],.bottom .sep,#walk,#helpbtn,[data-speed="1"]{display:none}
+  .left,.feed,.chain,#outside,label[for=tod],.bottom .sep,#walk,#helpbtn,[data-speed="1"]{display:none}
   .top{left:6px;right:6px;top:calc(6px + var(--safe-t));padding:6px 8px;gap:8px;flex-wrap:nowrap}
-  .brand b{font-size:20px}.clock{font-size:12px;padding:5px 7px}.chip.mode{display:none}
+  .brand b{font-size:20px}.brand span{font-size:11px;letter-spacing:.08em}.clock{font-size:12px;padding:5px 7px}.chip.mode{display:none}
   .readings{margin-left:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0}
   .rd{min-width:54px;padding:3px 6px}.rd b{font-size:12.5px}
   .panel{top:auto;left:6px;right:6px;width:auto;height:62%;bottom:calc(6px + var(--safe-b))}
   .bottom{bottom:calc(6px + var(--safe-b));padding:6px;gap:6px;flex-wrap:nowrap}
-  .bottom input[type=range]{width:120px}
-  .scen{left:6px;right:6px;width:auto;bottom:calc(58px + var(--safe-b));padding:6px}
+  .bottom{left:6px;right:6px;transform:none;max-width:none}
+  .bottom input[type=range]{flex:1 1 60px;min-width:50px;width:auto;height:40px}
+  .bottom .btn{min-height:40px;min-width:40px;white-space:nowrap;flex:none}
+  .scen{left:6px;right:6px;width:auto;bottom:calc(66px + var(--safe-b));padding:6px}
   .scen h3{display:none}
   .scen .grid{display:flex;overflow-x:auto;scrollbar-width:none;gap:6px}
-  .scen .grid button{flex:none;white-space:nowrap;padding:8px 10px}
-  #toasts{left:6px;right:6px;width:auto;bottom:calc(112px + var(--safe-b))}
+  .scen .grid button{flex:none;white-space:nowrap;padding:8px 10px;min-height:40px}
+  #toasts{left:6px;right:6px;width:auto;bottom:calc(126px + var(--safe-b))}
   #app.focus #toasts{left:6px}
   .tip{display:none!important}
 }
+@media (max-width:360px){.bottom{gap:4px;padding:6px 4px}.bottom .btn{padding:6px 6px}.bottom input[type=range]{min-width:32px}}
 #app.capture .hud,#app.capture .panel,#app.capture #tip,#app.capture #toasts,#app.capture #alarm,#app.capture #labels,#app.capture #leaders,#app.capture #help,#app.capture #cross{display:none!important}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important;transition-duration:.01s!important}}
 </style>
@@ -325,13 +339,20 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 
   <div id="loading">
     <div class="ld">
-      <b>GH-01</b>
+      <h1>GH-01</h1>
       <p>Autonomous tomato greenhouse · digital twin</p>
+      <small>Design stage: a 3D model you can explore. Nothing is built yet. About 9 MB to load, so Wi-Fi helps.</small>
       <div class="bar"><i id="ld-bar"></i></div>
       <span id="ld-step">Loading…</span>
       <button class="start" id="ld-start" hidden>Enter greenhouse</button>
+      <small>Build guides and code: <a href="https://github.com/sumithshridhar/gh01-twin#readme" target="_blank" rel="noopener">github.com/sumithshridhar/gh01-twin</a></small>
+      <noscript><small>The twin needs JavaScript turned on.</small></noscript>
     </div>
   </div>
 </div>
-<script type="module" src="js/main.js"></script>
+<script>
+// If three.js (cdn.jsdelivr.net) or a script cannot load, say so instead of staying on "Loading…" forever
+function ghFail() { var s = document.getElementById('ld-step'); if (s) s.textContent = 'Could not load the 3D engine. Check your connection and reload the page.'; }
+</script>
+<script type="module" src="js/main.js" onerror="ghFail()"></script>
 <script type="module" src="js/scenes.js"></script>

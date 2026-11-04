@@ -1206,5 +1206,5 @@ $('#ld-start').addEventListener('click', () => {
   camera.position.copy(B(-22, -20, 12));
   controls.target.copy(B(4.2, 0, 1.2));
   flyTo(B(-7.5, -8.5, 4.2), B(4.2, 0.2, 1.4), 2.6);
-  setTimeout(() => A.toast('Welcome to GH-01', 'Click any machine, sensor or plant to explode it into its parts with a blueprint. 🎬 Tour shows the highlights.'), 1500);
+  setTimeout(() => A.toast('Welcome to GH-01', `${MOBILE ? 'Tap' : 'Click'} any machine, sensor or plant to explode it into its parts with a blueprint. 🎬 Tour shows the highlights. This is a 3D design: nothing is built yet.`), 1500);
 });
