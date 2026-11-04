@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sample Greenhouse Plan · GH-01</title>
+<meta name="description" content="A sample Custom Greenhouse Plan for a 1,000 m² soil-bed tomato polyhouse near Bengaluru: automation in 4 stages, cheapest first, with priced parts and a payback calculator.">
+<meta property="og:title" content="Sample plan: a 1,000 m² tomato polyhouse near Bengaluru">
+<meta property="og:description" content="Automation in 4 stages, cheapest first: auto-watering, a disease alarm, a pest camera, the R1 scout rover. Priced parts and a payback calculator.">
+<meta property="og:image" content="https://sumithshridhar.github.io/gh01-twin/og.jpg">
+<meta property="og:url" content="https://sumithshridhar.github.io/gh01-twin/plan/">
+<meta property="og:type" content="website">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* colours and fonts: the same tokens as ../index.html */
+:root{
+  color-scheme:dark;
+  --bg:#0A1211; --hud:rgba(9,17,16,.80); --hud2:rgba(14,26,24,.92); --line:rgba(150,205,185,.18); --line2:rgba(150,205,185,.32);
+  --ink:#E9F2EE; --muted:#93A89F; --sun:#F2C230; --water:#45C6E6; --leaf:#6FD08C; --alarm:#FF5A3C; --plc:#7BE0A0;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif; --body:"Public Sans",system-ui,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);-webkit-text-size-adjust:100%}
+a{color:var(--water)}
+img{max-width:100%;display:block}
+main{max-width:760px;margin:0 auto;padding:0 16px 48px}
+header{padding:20px 0 8px}
+.brand{display:flex;gap:8px;align-items:baseline;font:600 14px/1 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.brand b{font:700 20px/1 var(--display);letter-spacing:.02em;color:var(--sun)}
+.brand a{color:inherit;text-decoration:none}
+.tag{display:inline-block;margin-top:14px;font:600 12px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:#0A1211;background:var(--sun);padding:5px 8px;border-radius:4px}
+h1{font:700 34px/1.05 var(--display);letter-spacing:.01em;margin:10px 0 10px;text-wrap:balance}
+h2{font:700 26px/1.1 var(--display);margin:40px 0 10px;text-wrap:balance}
+h3{font:700 21px/1.15 var(--display);margin:0 0 6px}
+p{margin:0 0 12px}
+.lead{color:#cfe0d8}
+.muted{color:var(--muted)}
+small,.small{font-size:13.5px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+figure{margin:16px 0}
+figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.crop{width:100%;aspect-ratio:2/1.6;border-radius:10px;border:1px solid var(--line);
+  background:url(../rover/renders/R1-review-sheet.jpg) 25% 0/300% auto no-repeat}
+.photo{border-radius:10px;border:1px solid var(--line);background:#e6e8ea}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.facts div{background:var(--hud2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.facts i{display:block;font:600 11px/1.2 var(--display);letter-spacing:.12em;text-transform:uppercase;font-style:normal;color:var(--muted)}
+.facts b{font:500 15px/1.3 var(--mono)}
+.honest{border-left:4px solid var(--sun);background:rgba(242,194,48,.08);padding:10px 12px;border-radius:0 8px 8px 0;margin:16px 0}
+.stage{background:var(--hud2);border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0}
+.stage .num{font:700 13px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--sun)}
+.stage .cost{font:600 19px/1.2 var(--mono);color:var(--leaf);margin:4px 0 8px}
+.stage dl{margin:0;display:grid;gap:6px}
+.stage dt{font:600 12px/1.2 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.stage dd{margin:0 0 4px}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;font:600 15px/1.3 var(--body);color:var(--water);padding:6px 0}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+th,td{text-align:left;vertical-align:top;padding:7px 4px;border-bottom:1px solid var(--line)}
+th{font:600 12px/1.2 var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+td.r,th.r{text-align:right;white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums}
+td small{display:block;color:var(--muted)}
+tr.tot td{font-weight:600;border-bottom:0}
+.calc{background:var(--hud2);border:1px solid var(--line2);border-radius:12px;padding:14px}
+.calc label{display:block;margin:0 0 12px;font-weight:600;font-size:15px}
+.calc label span{display:block;font-weight:400;font-size:13px;color:var(--muted)}
+.calc input{width:100%;margin-top:4px;font:500 18px/1 var(--mono);color:var(--ink);background:rgba(255,255,255,.05);
+  border:1px solid var(--line2);border-radius:8px;padding:10px}
+.calc input:focus{outline:2px solid var(--sun);outline-offset:1px}
+.out{margin-top:6px;padding:12px;border-radius:10px;background:rgba(111,208,140,.10);border:1px solid rgba(111,208,140,.35)}
+.out.bad{background:rgba(255,90,60,.10);border-color:rgba(255,90,60,.4)}
+.out b{display:block;font:700 26px/1.15 var(--display)}
+.out p{margin:6px 0 0;font-size:14px}
+ol.assume{padding-left:20px;margin:8px 0 0;font-size:14px}
+ol.assume li{margin-bottom:8px}
+ul.get{padding-left:20px}
+ul.get li{margin-bottom:6px}
+.cta{display:block;text-align:center;margin:18px 0 8px;padding:14px 16px;border-radius:10px;background:var(--sun);color:#0A1211;
+  font:700 20px/1.2 var(--display);letter-spacing:.03em;text-decoration:none}
+.cta:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+svg text{font-family:var(--mono)}
+footer{border-top:1px solid var(--line);margin-top:40px;padding-top:12px;font-size:13px;color:var(--muted)}
+@media (min-width:640px){h1{font-size:44px} .facts{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="brand"><a href="../"><b>GH-01</b></a><span>Custom Greenhouse Plan</span></div>
+  <span class="tag">Sample</span>
+  <h1>Sample plan: a 1,000&nbsp;m² tomato polyhouse near Bengaluru</h1>
+  <p class="lead">This is what a plan looks like. The farm below is made up, but it is a normal Indian polyhouse: soil beds under
+  mulch, drip lines, no rails. We automate it in 4 stages, cheapest first. Each stage only goes ahead if the one before it
+  proved its value.</p>
+</header>
+
+<div class="honest"><b>Honest line:</b> GH-01 itself is a digital twin we are building in stages; the parts in this plan
+are standard parts you can buy today.</div>
+
+<figure>
+  <div class="crop" role="img" aria-label="Render: the R1 rover in the 45 cm path between two mulched soil beds, and a tomato house with soil beds"></div>
+  <figcaption>Render from the GH-01 twin (Blender, not a photo): soil beds under mulch, a 45 cm path, tomato plants on strings.</figcaption>
+</figure>
+
+<h2>The sample farm</h2>
+<div class="facts">
+  <div><i>Size</i><b>40 × 25 m</b></div>
+  <div><i>Crop</i><b>Tomato</b></div>
+  <div><i>Beds</i><b>16 × 38 m</b></div>
+  <div><i>Paths</i><b>50 cm</b></div>
+</div>
+<p class="small muted">Naturally ventilated polyhouse. Raised beds 1 m wide under silver mulch, 2 drip laterals per bed, 2 L/h drippers
+every 40 cm. Water from a borewell pump through a sand filter. A Wi-Fi router in the farm room.</p>
+
+<figure>
+<svg viewBox="0 0 400 270" width="100%" role="img" aria-label="Top view of the sample polyhouse: 16 beds in 8 watering zones, the disease alarm box in the middle, 2 pest cameras and the rover dock by the door">
+  <rect x="10" y="10" width="380" height="226" rx="4" fill="none" stroke="#93A89F" stroke-width="1.5"/>
+  <g id="beds"></g>
+  <rect x="180" y="236" width="40" height="8" fill="#F2C230"/>
+  <text x="200" y="262" fill="#E9F2EE" font-size="11" text-anchor="middle">door + wheel bath</text>
+  <circle cx="200" cy="123" r="7" fill="#FF5A3C"/><text x="212" y="127" fill="#E9F2EE" font-size="10">alarm box</text>
+  <rect x="44" y="222" width="10" height="10" fill="#C9B6FF"/><rect x="346" y="16" width="10" height="10" fill="#C9B6FF"/>
+  <text x="58" y="231" fill="#C9B6FF" font-size="10">pest cam</text><text x="342" y="24" fill="#C9B6FF" font-size="10" text-anchor="end">pest cam</text>
+  <rect x="226" y="222" width="22" height="10" fill="#9FD7FF"/><text x="252" y="231" fill="#9FD7FF" font-size="10">dock</text>
+</svg>
+<figcaption>Top view (not to scale). Each colour is one watering zone of 2 beds.</figcaption>
+</figure>
+
+<h2>The plan: 4 stages, cheapest first</h2>
+<p class="muted small">Costs are for the parts, in rupees, from Indian shops. Prices checked on 4 Nov 2026 by web search, unless a line
+says otherwise. They change often: check before you buy.</p>
+
+<section class="stage" id="s1">
+  <div class="num">Stage 1</div>
+  <h3>Beds that water themselves</h3>
+  <div class="cost">≈ ₹1,750 a zone · 8 zones ≈ ₹14,000</div>
+  <dl>
+    <dt>What it does</dt>
+    <dd>A soil sensor in each zone tells a small Wi-Fi computer (ESP32) when the soil is dry. It opens a 12 V valve on that
+    zone's feed pipe for a short shot, then waits 30 minutes for the water to soak in before it checks again. Your drip
+    lines stay as they are.</dd>
+    <dt>What it needs</dt>
+    <dd>Pressure at the valve (your pump, or a tank 2 m up). A 230 V socket for each 12 V adapter. Wi-Fi only for phone messages; it waters without it.</dd>
+    <dt>Why 8 zones</dt>
+    <dd>One bed drinks about 6 L/min (190 drippers × 2 L/h). A ½" valve passes about 8–15 L/min, so one valve feeds 2 beds.</dd>
+    <dt>Build guide</dt>
+    <dd><a href="../build/03-auto-watering/">Build Part 3: plants that water themselves</a> (every wire and the code)</dd>
+  </dl>
+  <details>
+    <summary>Parts for one zone</summary>
+    <table>
+      <thead><tr><th>Part</th><th class="r">≈ ₹</th></tr></thead>
+      <tbody>
+        <tr><td>ESP32 DevKit V1, 30 pin <small><a href="https://kspelectronics.in/?p=10021">KSP ₹350</a> · <a href="https://www.pricebefore.com/sp-electron-esp32-development-board-devkit-b0hd7qc26l-m988809.html">Amazon.in ₹499–559</a></small></td><td class="r">350–560</td></tr>
+        <tr><td>ESP32 expansion board with 12 V jack <small><a href="https://www.flyrobo.in/esp32-30p-devkit-v1-expansion-board">FlyRobo ₹121</a></small></td><td class="r">120</td></tr>
+        <tr><td>Capacitive soil sensor v1.2 <small><a href="https://robodo.in/products/capacitive-soil-moisture-sensor-v1-2-corrosion-resistant-analog-sensor-cable-1">Robodo ₹69</a> · <a href="https://robu.in/?p=130230">Robu</a></small></td><td class="r">70–120</td></tr>
+        <tr><td>5 V 1-channel relay with optocoupler <small>The Engineer Store ₹61</small></td><td class="r">40–60</td></tr>
+        <tr><td>12 V ½" normally-closed valve <small><a href="https://atomlabindia.com/?p=6634">Atomlab ₹197</a> · <a href="https://robocraze.com/products/solenoid-valve-12v-1-2in-solar-water-heater">Robocraze ₹339</a> · <a href="https://robu.in/?p=31396">Robu</a></small></td><td class="r">200–350</td></tr>
+        <tr><td>12 V 2 A adapter + splitter + screw jack <small>Oct 2026 estimate</small></td><td class="r">235–335</td></tr>
+        <tr><td>IP65 box + glands <small>Oct 2026 estimate</small></td><td class="r">250–350</td></tr>
+        <tr><td>½" fittings, PTFE tape, plank, straps, cable <small>Oct 2026 estimate</small></td><td class="r">350–450</td></tr>
+        <tr class="tot"><td>One zone</td><td class="r">≈ 1,600–2,300</td></tr>
+      </tbody>
+    </table>
+  </details>
+</section>
+
+<section class="stage" id="s2">
+  <div class="num">Stage 2</div>
+  <h3>The disease-alarm box</h3>
+  <div class="cost">≈ ₹2,100 · 1 box</div>
+  <dl>
+    <dt>What it does</dt>
+    <dd>An SHT30 humidity probe in a sun shield, at plant height in the middle of the house. The ESP32 counts the hours when
+    the air is wet enough for leaves to stay wet (we use 90 % humidity or more). When those hours pile up at the warm, damp
+    temperatures blight likes, your phone gets an alert, before spots appear.</dd>
+    <dt>What it needs</dt>
+    <dd>Wi-Fi in the house and the free ntfy app on your phone. A 5 V phone charger.</dd>
+    <dt>Good to know</dt>
+    <dd>The probe measures air, not the leaf, so "leaf-wet hours" is an estimate. It tells you when to look, not what to spray.</dd>
+    <dt>Build guide</dt>
+    <dd>Build Part 4. It is designed in the twin; the written guide is not published yet.</dd>
+  </dl>
+  <details>
+    <summary>Parts</summary>
+    <table>
+      <thead><tr><th>Part</th><th class="r">≈ ₹</th></tr></thead>
+      <tbody>
+        <tr><td>ESP32 DevKit V1 + expansion board <small><a href="https://kspelectronics.in/?p=10021">KSP ₹350</a> + <a href="https://www.flyrobo.in/esp32-30p-devkit-v1-expansion-board">FlyRobo ₹121</a></small></td><td class="r">470–680</td></tr>
+        <tr><td>SHT30 probe, sintered cap, cable <small><a href="https://probots.co.in/sht30-temperature-humidity-sensor-module-probe-cable-waterproof-digital-capacitance-sensors-i2c-output.html">Probots ₹899 incl. GST</a></small></td><td class="r">900</td></tr>
+        <tr><td>Sun shield: 6 white plant saucers, 3 threaded rods <small>Oct 2026 estimate</small></td><td class="r">220</td></tr>
+        <tr><td>IP65 box, pipe stand <small>Oct 2026 estimate</small></td><td class="r">250–350</td></tr>
+        <tr><td>5 V charger + long USB cable <small>Oct 2026 estimate</small></td><td class="r">200–250</td></tr>
+        <tr class="tot"><td>Box</td><td class="r">≈ 2,050–2,400</td></tr>
+      </tbody>
+    </table>
+  </details>
+</section>
+
+<section class="stage" id="s3">
+  <div class="num">Stage 3</div>
+  <h3>The pest camera</h3>
+  <div class="cost">≈ ₹7,000 a camera · 2 cameras ≈ ₹14,000<br><span class="small muted">+ ≈ ₹35,000 once for the counting computer</span></div>
+  <dl>
+    <dt>What it does</dt>
+    <dd>A yellow sticky card catches whitefly and thrips. A camera 20 cm away photographs it every hour; a computer on the farm
+    counts only the new insects. When one trap jumps, your phone gets the photo and the trap's place.</dd>
+    <dt>What it needs</dt>
+    <dd>Wi-Fi at the trap. A Raspberry Pi 5 + AI HAT+ on the farm that receives and counts the photos (one for the whole farm).
+    A new card every ~2 weeks, and a charged battery at the same time.</dd>
+    <dt>Where</dt>
+    <dd>Two cameras on the riskiest cards: by the door and in the far corner. Keep your other cards and check them by eye.</dd>
+    <dt>Build guide</dt>
+    <dd><a href="../build/01-pest-camera/">Build Part 1: a camera that counts pests</a></dd>
+  </dl>
+  <details>
+    <summary>Parts for one camera</summary>
+    <table>
+      <thead><tr><th>Part</th><th class="r">≈ ₹</th></tr></thead>
+      <tbody>
+        <tr><td>Raspberry Pi Zero 2 W <small><a href="https://www.robocraze.com/products/raspberry-pi-zero-2-w">Robocraze ₹1,922</a></small></td><td class="r">1,920</td></tr>
+        <tr><td>Raspberry Pi Camera Module 3 (standard) <small><a href="https://robocraze.com/products/raspberry-pi-camera-module-3">Robocraze ₹3,249</a> · <a href="https://indianhobbycenter.com/products/official-raspberry-pi-camera-module-3">Indian Hobby Center ₹2,999</a></small></td><td class="r">3,000–3,250</td></tr>
+        <tr><td>Adafruit TPL5110 power timer <small>no Indian listing found; <a href="https://www.adafruit.com/products/3435">$4.95</a> + import, Oct 2026 estimate</small></td><td class="r">750</td></tr>
+        <tr><td>Zero camera cable, MT3608 boost, 18650 cell + holder <small>Oct 2026 estimate</small></td><td class="r">500</td></tr>
+        <tr><td>LED ring, MOSFET, resistors, board, wires <small>Oct 2026 estimate</small></td><td class="r">270</td></tr>
+        <tr><td>IP65 box, acrylic window, silica gel, 32 GB card <small>Oct 2026 estimate</small></td><td class="r">700</td></tr>
+        <tr><td>Yellow sticky cards <small>Oct 2026 estimate</small></td><td class="r">25 each</td></tr>
+        <tr class="tot"><td>One camera</td><td class="r">≈ 7,150–7,400</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Counting computer (once per farm)</th><th class="r">≈ ₹</th></tr></thead>
+      <tbody>
+        <tr><td>Raspberry Pi 5 8 GB <small><a href="https://robocraze.com/products/raspberry-pi-5-8gb">Robocraze ₹21,999</a></small></td><td class="r">22,000</td></tr>
+        <tr><td>AI HAT+ 26 TOPS <small><a href="https://robocraze.com/products/official-raspberry-pi-ai-hat-26-tops">Robocraze ₹11,309</a></small></td><td class="r">11,300</td></tr>
+        <tr><td>Cooler + 64 GB card <small><a href="https://indianhobbycenter.com/products/pi-5-active-cooler">₹499</a> + ₹1,450</small></td><td class="r">1,950</td></tr>
+        <tr class="tot"><td>Counting computer</td><td class="r">≈ 35,250</td></tr>
+      </tbody>
+    </table>
+    <p class="small muted">Pi 5 prices are from the 4 Nov 2026 re-check in the <a href="../build/02-r1-rover/">R1 build guide</a>.</p>
+  </details>
+</section>
+
+<section class="stage" id="s4">
+  <div class="num">Stage 4</div>
+  <h3>The R1 scout rover</h3>
+  <div class="cost" id="r1cost">≈ ₹2.0–2.1 lakh</div>
+  <figure style="margin:8px 0 12px">
+    <img class="photo" src="../rover/renders/r_strawberry.jpg" alt="Render of the R1 rover: four wheels, a mast with cameras, a 15 L tank and an electronics box" width="960" height="600" loading="lazy">
+    <figcaption>Render of R1 from the twin. It has not been built yet.</figcaption>
+  </figure>
+  <dl>
+    <dt>What it does</dt>
+    <dd>A 36 cm wide rover drives in the path between the beds and photographs every plant from both sides, every 25 cm. It
+    flags plants that look wrong and sends you the photo. It sprays only the plants you approve on your phone, one nozzle at a time.</dd>
+    <dt>What it needs</dt>
+    <dd>Paths at least 45 cm wide and firm. A dock with a socket by the door. A wheel bath at the door, so it doesn't carry
+    disease from house to house. Wi-Fi. A person to mix the tank and say yes to each spray.</dd>
+    <dt>Good to know</dt>
+    <dd>Its starter code is untested on hardware. At 1,000 m² it rarely pays for itself (see the calculator below); it makes
+    sense when one rover serves several houses.</dd>
+    <dt>Build guide</dt>
+    <dd><a href="https://github.com/sumithshridhar/gh01-twin/blob/main/build/02-r1-rover/README.md">Build Part 2: the R1 rover</a> (26 parts with prices, every wire, starter code)</dd>
+  </dl>
+  <details>
+    <summary>Main parts</summary>
+    <table>
+      <thead><tr><th>Part</th><th class="r">≈ ₹</th></tr></thead>
+      <tbody>
+        <tr><td>4 × 10" 24 V hub motor + 4 drivers <small><a href="https://robokits.co.in/e-bike/hub-motor/10inch-bldc-hub-motor-with-24v-350w-controller-and-throttle">Robokits ₹6,250</a> · <a href="https://probots.co.in/zs-x11h-400w-bldc-3-phase-brushless-motor-controller-6v-60v-pwm-hall-driver-module.html">Probots ₹999</a></small></td><td class="r">30,000</td></tr>
+        <tr><td>24 V 30 Ah LiFePO4, BMS ≥ 50 A <small>IndiaMART, ₹10,800–14,750 before GST</small></td><td class="r">15,000–25,000</td></tr>
+        <tr><td>Pi 5 8 GB + AI HAT+ 26 TOPS <small><a href="https://robocraze.com/products/raspberry-pi-5-8gb">Robocraze</a></small></td><td class="r">35,300</td></tr>
+        <tr><td>7 × USB camera, Arducam IMX708 <small><a href="https://www.amazon.in/Arducam-IMX708-Fixed-Focus-Camera-Module/dp/B0CJF1NYNP">Amazon.in ₹9,238</a></small></td><td class="r">64,700</td></tr>
+        <tr><td>RPLIDAR C1 <small><a href="https://tannatechbiz.com/rplidar-c1-360-degree-laser-scanner.html">Tannatech ₹6,099</a> · <a href="https://thinkrobotics.com/products/slamtec-rplidar-c1-laser-ranging-sensor">ThinkRobotics ₹9,800</a></small></td><td class="r">6,100–9,800</td></tr>
+        <tr><td>Sprayer: tank, pump, 6 valves, 6 TeeJet tips <small><a href="https://aws.robu.in/?p=975728">Robu valve ₹597</a></small></td><td class="r">~13,000</td></tr>
+        <tr><td>Frame, safety, wiring, dock, rest <small>see the build guide</small></td><td class="r">~34,000</td></tr>
+        <tr class="tot"><td>Total (the build guide's Total row)</td><td class="r" id="r1tot">≈ 2.0–2.1 lakh</td></tr>
+      </tbody>
+    </table>
+    <p class="small muted">Rounded lines; the full 26-line list is in the <a href="https://github.com/sumithshridhar/gh01-twin/blob/main/build/02-r1-rover/README.md">build guide</a>.</p>
+  </details>
+</section>
+
+<h2>Does the rover pay for itself?</h2>
+<p>Put in your own numbers. The answer is rough on purpose: it rests on the assumptions listed under it.</p>
+<div class="calc">
+  <label>Area under the crop, m²<span>1 acre ≈ 4,047 m²</span><input id="area" type="number" inputmode="decimal" min="100" step="100" value="1000"></label>
+  <label>Scouting hours a day the rover saves<span>walking the rows to look at plants</span><input id="hours" type="number" inputmode="decimal" min="0" step="0.25" value="0.5"></label>
+  <label>Wage per day, ₹<input id="wage" type="number" inputmode="numeric" min="0" step="10" value="550"></label>
+  <label>Pesticide spend per acre per season, ₹<input id="pest" type="number" inputmode="numeric" min="0" step="500" value="12000"></label>
+  <div class="out" id="out" aria-live="polite"><b id="be">…</b><p id="why"></p></div>
+
+  <details open>
+    <summary>Assumptions (and where each default comes from)</summary>
+    <ol class="assume">
+      <li><b>Rover cost: <span id="r1a">₹2.0–2.1 lakh</span></b>, parts only, from the Total row of the
+        <a href="https://github.com/sumithshridhar/gh01-twin/blob/main/build/02-r1-rover/README.md">R1 build guide</a> (re-checked 4 Nov 2026). Your time to build it is not counted.</li>
+      <li><b>Scouting: 0.5 h a day for 1,000 m².</b> An IPM guide budgets about 20 minutes a week per 1,000 ft² of greenhouse
+        (<a href="https://greenmethods.com/pages/scouting-info">Green Methods</a>). 1,000 m² ≈ 10,800 ft² → ~3.6 h a week ≈ 0.5 h a day.
+        Someone still has to approve sprays, so the rover saves walking, not all your time.</li>
+      <li><b>Wage: ₹550 a day, for 8 hours.</b> Karnataka minimum wage for farm work, ₹549.97 a day
+        (<a href="https://wageindicator.org/en-in/work-in-india/minimum-wage31024-karnataka/31025-agriculture-and-related-works">WageIndicator, Apr 2026</a>);
+        a working day is 8 hours (<a href="https://comply4hr.com/mw/KAR2022KAR2021SEC.pdf">Karnataka notification</a>).
+        Karnataka revised many minimum wages in May 2026 (<a href="https://teamleaseregtech.com/updates/article/56206/karnataka-govt-issued-the-consolidated-revision-of-minimum-wages-for-81-scheduled-employments-with-zone-wise-structure-and-vda-framework/">TeamLease</a>), so put in what you actually pay.</li>
+      <li><b>Pesticide: ₹12,000 per acre per season.</b> A Haryana study put plant protection for polyhouse tomato at about
+        ₹12,295 an acre (<a href="https://core.ac.uk/download/158353095.pdf">core.ac.uk</a>). It is an older figure; yours is likely higher.</li>
+      <li><b>Spot spraying saves half the pesticide.</b> Our guess. One research spot-spraying robot reported 71 % less
+        (<a href="https://arxiv.org/abs/2610.18123">MARTS</a>); we use less because R1 is not built yet.</li>
+      <li><b>One tomato season a year, about 8 months in the house</b> (240 days of scouting). In naturally ventilated
+        polyhouses, planting is around late September and the crop may last to April; some varieties run 9–10 months
+        (<a href="https://justagriculture.in/files/newsletter/2024/april/45.%20Protected%20Cultivation%20of%20Tomato%20Under%20Polyhouse.pdf">Just Agriculture, 2024</a>).</li>
+      <li><b>Not counted:</b> electricity, battery wear, repairs, and any change in yield. These make the real break-even later, or (if yield improves) earlier.</li>
+    </ol>
+  </details>
+</div>
+
+<h2>What you get</h2>
+<ul class="get">
+  <li><b>A 3D twin of your own greenhouse</b>, built to your sizes, so you can see every part where it will go.</li>
+  <li><b>The staged plan</b> for your farm, like the one above, with your numbers in the calculator.</li>
+  <li><b>The parts list with links</b> to Indian shops, priced and dated.</li>
+  <li><b>One video call</b> to go through it together.</li>
+</ul>
+<p class="muted small">You buy the parts yourself, from any shop you like.</p>
+<a class="cta" href="https://www.instagram.com/ghost.ops.ai.service/" rel="noopener">DM @ghost.ops.ai.service on Instagram</a>
+
+<footer>
+  <p>Renders are from the GH-01 digital twin (Blender), not photos. Nothing in GH-01 is physically built yet; the build guides
+  say what is tested and what is not. Prices: web search on 4 Nov 2026, or the build guides' Oct 2026 estimates where marked.</p>
+  <p><a href="../">See the GH-01 twin</a></p>
+</footer>
+</main>
+
+<script>
+// sync with build/02-r1-rover/README.md total (the "Total" row: ≈ ₹2.0–2.1 lakh, re-checked 4 Nov 2026)
+const R1_COST_INR = [200000, 210000];
+
+const ACRE_M2 = 4047, WORK_HOURS = 8, SCOUT_DAYS = 240, SEASONS = 1, PEST_SAVED = 0.5;
+const lakh = n => (n / 1e5).toFixed(1);
+const r1Text = "₹" + lakh(R1_COST_INR[0]) + "–" + lakh(R1_COST_INR[1]) + " lakh";
+document.getElementById("r1cost").textContent = "≈ " + r1Text;
+document.getElementById("r1tot").textContent = "≈ " + lakh(R1_COST_INR[0]) + "–" + lakh(R1_COST_INR[1]) + " lakh";
+document.getElementById("r1a").textContent = r1Text;
+
+// beds in the top-view drawing: 16 beds, 8 zones of 2
+(function () {
+  const g = document.getElementById("beds"), cols = ["#45C6E6", "#6FD08C"];
+  let s = "";
+  for (let i = 0; i < 16; i++) {
+    const x = 18 + i * 23.4, c = cols[Math.floor(i / 2) % 2];
+    s += '<rect x="' + x.toFixed(1) + '" y="22" width="15" height="190" rx="2" fill="' + c + '" fill-opacity=".55"/>';
+  }
+  g.innerHTML = s;
+})();
+
+const num = id => Math.max(0, parseFloat(document.getElementById(id).value) || 0);
+// round so the page never shows more precision than the assumptions have
+const rupees = n => { const step = n < 10000 ? 100 : 1000; return "₹" + (Math.round(n / step) * step).toLocaleString("en-IN"); };
+
+function span(days) {
+  if (days < 60) return Math.round(days / 5) * 5 + " days";
+  const m = days / 30.4;
+  if (m < 24) return Math.round(m) + " months";
+  return (Math.round(m / 6) / 2) + " years";
+}
+
+function calc() {
+  const area = num("area"), hours = num("hours"), wage = num("wage"), pest = num("pest");
+  const labour = hours * (wage / WORK_HOURS) * SCOUT_DAYS;
+  const spray = (area / ACRE_M2) * pest * SEASONS * PEST_SAVED;
+  const year = labour + spray;
+  const out = document.getElementById("out"), be = document.getElementById("be"), why = document.getElementById("why");
+  const parts = "It saves about " + rupees(year) + " a year: " + rupees(labour) + " of scouting time and " + rupees(spray) + " of pesticide.";
+  if (year <= 0) {
+    out.className = "out bad"; be.textContent = "It never pays back"; why.textContent = "With these numbers it saves nothing.";
+    return;
+  }
+  const d0 = R1_COST_INR[0] / year * 365, d1 = R1_COST_INR[1] / year * 365;
+  if (d0 > 5 * 365) {
+    out.className = "out bad";
+    be.textContent = "Break-even: about " + Math.round(d0 / 365) + " years";
+    why.textContent = parts + " That is too slow to be worth it. At this size, stages 1–3 cost far less and make more sense.";
+    return;
+  }
+  out.className = "out";
+  const a = span(d0), b = span(d1);
+  const unit = a.split(" ")[1];
+  be.textContent = "Break-even: about " + (a === b ? a : (b.split(" ")[1] === unit ? a.split(" ")[0] + "–" + b : a + " to " + b));
+  why.textContent = parts + " Rough: change any number and see how much it moves.";
+}
+["area", "hours", "wage", "pest"].forEach(id => document.getElementById(id).addEventListener("input", calc));
+calc();
+</script>
+</body>
+</html>
