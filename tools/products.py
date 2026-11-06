@@ -200,14 +200,14 @@ P = [
          life=6, maint=0),
 
     # ───────────────────────── control ─────────────────────────
-    dict(key="cabinet", sys="Control", comps=["control_cabinet"], qty=1, unit=113000,
+    dict(key="cabinet", sys="Control", comps=["control_cabinet"], qty=1, unit=115000,
          product="EC Box 800×1000×300 IP65 steel cabinet: Arduino Opta RS485 PLC, Raspberry Pi 5 8 GB + AI HAT+ 26 TOPS, "
                  "Schneider TeSys contactors & MPCBs, RCCB, E-stop, 35 °C hard-wired fan thermostat, 4G router, DC UPS",
          spec="The AI runs on the Pi and only suggests; the Opta PLC owns every relay; the thermostat, float switch and "
               "E-stop work even if both are off.",
          dims=dict(width=600, height=800, depth=250),
          src="https://robocraze.com/products/official-arduino-opta-rs485", life=10, maint=2000,
-         note="Opta ₹18,060 · Pi 5 8 GB ₹19,999 (2026 RAM-shortage price) · AI HAT+ ₹14,769 · cabinet ≈₹16k · "
+         note="Opta ₹18,060 · Pi 5 8 GB ₹21,999 (2026 RAM-shortage price; Robocraze, 4 Nov 2026; ₹22,799 on Amazon.in) · AI HAT+ ₹14,769 · cabinet ≈₹16k · "
               "6 × LC1D09 ₹4.5k · 3 × GV2ME ₹5.3k · rest ₹34k."),
     dict(key="esp32", sys="Control", comps=["esp32_node_fert", "esp32_node_crop"], qty=2, unit=2800,
          product="Waveshare ESP32-S3-RS485-CAN (DIN-rail case) in an IP65 box",
