@@ -7,8 +7,11 @@
 //   const RV = await import('./js/rover.js'); GH.rover = await RV.build(GH); GH.rover.show(true);
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-async function loadGLB(url) {
-  const { gz } = await (await fetch(url)).json();
+export async function loadGLB(url) {
+  let gz;
+  for (let i = 0; gz === undefined; i++) {         // a slow or flaky connection: try three times before giving up
+    try { ({ gz } = await (await fetch(url)).json()); } catch (e) { if (i >= 2) throw e; await new Promise((r) => setTimeout(r, 700)); }
+  }
   const bin = Uint8Array.from(atob(gz), (c) => c.charCodeAt(0));
   const glb = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
   return new GLTFLoader().parseAsync(glb, '');
@@ -28,6 +31,11 @@ export async function build(GH) {
     o.castShadow = !film;
     o.receiveShadow = true;
     if (film) { o.material.transparent = true; o.material.depthWrite = false; o.material.side = T.DoubleSide; }
+    if (o.name === 'ground_web' && GH.realMat) {    // the same photographed red soil as GH-01's yard, not a flat colour
+      GH.boxUV(o.geometry, 3.5);
+      o.material = GH.realMat('soil', { color: 0xf2e6dc });
+      o.castShadow = false;
+    }
     if (/mulch_silver/.test(o.material?.name || '')) { o.material.metalness = 0.25; o.material.roughness = 0.5; }   // no bloom streaks on the bed shoulders
   });
   // strawberry plants: one instanced mesh per part of the plant, on every planting hole
@@ -48,6 +56,11 @@ export async function build(GH) {
     root.add(im);
   });
   GH.scene.add(root);
+  // the Blender components in this house (rover, wheel bath, mist arch, beds, frame) explode on a click, like GH-01's
+  GH.adopt?.(house.scene, (c) => c.id !== 'floor_web');
+  const loose = [];                                // everything that is not a component: hidden while one is exploded
+  root.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && !o.userData.comp) loose.push(o); });
+  let focused = false;
   // the rover: its own root, driven along one path
   let rover = null;
   house.scene.traverse((o) => { if (o.userData?.gh_id === meta.rover) rover = o; });
@@ -56,7 +69,11 @@ export async function build(GH) {
   const drive = { x: xa, dir: 1, wait: 0 };
   const api = { root, meta, rover, paused: false };
   api.update = (dt) => {
-    if (!root.visible || !rover || api.paused) return;
+    if (!root.visible) return;
+    const f = !!GH.sel;
+    if (f !== focused) { focused = f; loose.forEach((o) => { o.visible = !f; }); if (api.kit) api.kit.root.visible = !f && api.kitOn; }
+    api.kit?.update(dt);
+    if (!rover || api.paused || f) return;
     if (drive.wait > 0) { drive.wait -= dt; return; }
     drive.x += drive.dir * 0.25 * dt;                 // 0.25 m/s: a photo of every plant, both sides
     if (drive.x > xb || drive.x < xa) { drive.x = Math.min(xb, Math.max(xa, drive.x)); drive.dir *= -1; drive.wait = 2.0; }
@@ -81,6 +98,18 @@ export async function build(GH) {
       world.sun.target.position.set(4.5, 0, 0);
     }
     root.visible = on;
+    if (!on) api.mode(null);
+    GH.dirtyShadows?.();
+  };
+  // 'buildr1' = the kit on the tarp outside (js/buildr1.js, loaded the first time); every other entry = the rover driving
+  api.kitOn = false;
+  api.mode = async (id) => {
+    const kitOn = id === 'buildr1';
+    if (kitOn && !api.kit) api.kit = await (await import('./buildr1.js')).build(GH, root);
+    api.kitOn = kitOn;
+    api.kit?.show(kitOn);
+    if (rover) rover.visible = !kitOn;
+    if (root.visible) world.sun.target.position.copy(kitOn ? B(5, -5, 0) : B(6, 0, 0));
     GH.dirtyShadows?.();
   };
   { const u = GH.farm4.update.bind(GH.farm4); GH.farm4.update = (dt, ct) => { u(dt, ct); api.update(dt); }; }

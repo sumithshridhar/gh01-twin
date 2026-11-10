@@ -28,8 +28,9 @@ const MOBILE = matchMedia('(max-width: 820px)').matches;
 const CAPTURE = new URLSearchParams(location.search).has('capture');
 // ?capture&hud (13 Oct 2026): frame-stepped recording with the game UI on screen ("gameplay" videos)
 const HUD = new URLSearchParams(location.search).has('hud');
-// look v2 (12 Oct 2026, video capture by default): the photographed sky + neutral tone mapping; ?look=v1 = the old look
-const LOOK = new URLSearchParams(location.search).get('look') || (CAPTURE ? 'v2' : 'v1');
+// look v2: the photographed sky + neutral tone mapping. First only for video capture (12 Oct 2026); since 10 Nov 2026 it is
+// what every visitor gets, so the site looks like the videos. ?look=v1 = the old flat look
+const LOOK = new URLSearchParams(location.search).get('look') || 'v2';
 
 // ── renderer / scene / post (two quality tiers) ────────────────
 const canvas = $('#c');
@@ -204,17 +205,21 @@ function register(root) {
 // ── real surfaces (6 Oct 2026): photographed CC0 textures from Poly Haven (assets/tex/CREDITS.txt) ──────────
 const texLoader = new THREE.TextureLoader();
 const REAL = {};
+const REAL_AVG = { soil: 0x8a4b33, concrete: 0x9b9a94, brick: 0x8d4b38, plaster: 0xd6d2c8, corrugated: 0x9aa1a8 };
 function realMat(key, opts = {}) {
   if (REAL[key]) return REAL[key];
-  const ld = (f, srgb) => {
-    const t = texLoader.load(`assets/tex/${f}`);
+  // the surface starts in the photo's average colour and gets the photo when it arrives (a slow connection used to show black)
+  const m = new THREE.MeshStandardMaterial({ roughness: opts.roughness ?? 0.92, metalness: opts.metalness ?? 0, color: REAL_AVG[key] ?? 0x8a8a8a });
+  const ld = (f, srgb, put) => texLoader.load(`assets/tex/${f}`, (t) => {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = 8;
     if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  };
-  const m = new THREE.MeshStandardMaterial({ map: ld(`${key}_diff.jpg`, true), normalMap: ld(`${key}_nor.jpg`, false),
-    roughness: opts.roughness ?? 0.92, metalness: opts.metalness ?? 0, color: opts.color ?? 0xffffff });
+    put(t);
+    m.needsUpdate = true;
+    shadowDirty = true;
+  });
+  ld(`${key}_diff.jpg`, true, (t) => { m.map = t; m.color.set(opts.color ?? 0xffffff); });
+  ld(`${key}_nor.jpg`, false, (t) => { m.normalMap = t; });
   m.name = `real_${key}`;
   return (REAL[key] = m);
 }
@@ -515,7 +520,7 @@ let openCats = new Set(['Irrigation']);
 function drawSystems() {
   const groups = {};
   for (const c of A.comps.values()) {
-    if (['site', 'cable_tray'].includes(c.id)) continue;
+    if (['site', 'cable_tray'].includes(c.id) || c.alt) continue;
     (groups[c.meta.category] = groups[c.meta.category] || []).push(c);
   }
   const cats = Object.keys(groups).sort((a, b) => CAT_ORDER.indexOf(a) - CAT_ORDER.indexOf(b));
@@ -815,8 +820,21 @@ function pick(x, y, list) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const hit = ray.intersectObjects(list, false)[0];
+  const hit = ray.intersectObjects(list, false).find((h) => inShownScene(h.object));
   return hit ? hit.object : null;
+}
+// a scene that is switched off (js/scenes.js hides its top-level group) must not catch clicks meant for the one on screen
+function inShownScene(o) { for (let p = o.parent; p; p = p.parent) if (!p.visible) return false; return true; }
+// extra scenes (js/scenes.js) hand their Blender components over, so they explode + show a blueprint like GH-01's own
+function adopt(root, ok = () => true) {
+  const all = register(root);
+  all.forEach((c) => { c.alt = true; });               // not part of GH-01's own systems list
+  const added = all.filter((c) => ok(c));
+  for (const c of added) {
+    c.meshes.forEach((m) => { if (!m.material.transparent && !NOPICK_PARTS.has(c.parts[m.userData.partIdx]?.name)) pickables.push(m); });
+  }
+  buildBVH();
+  return added;
 }
 let pointer = { x: 0, y: 0, moved: true, down: null };
 canvas.addEventListener('pointermove', (e) => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.moved = true; });
@@ -1176,7 +1194,14 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     hookActuators();
     sim = new Sim(A, SIMDATA);
     A.sim = sim;
-    if (LOOK === 'v2') { setProgress('Loading the sky…'); await world.useRealSky(); }
+    if (LOOK === 'v2' && CAPTURE) { setProgress('Loading the sky…'); await world.useRealSky(); }
+    else if (LOOK === 'v2') {                       // 3.3 MB: it arrives behind the scenes, the drawn sky stands in until then
+      world.useRealSky().then(() => {
+        if (sel) scene.background = new THREE.Color(0x061219);
+        world.setTime(sim.t, sim.cloud);
+        shadowDirty = true;
+      }).catch((e) => console.warn('Photographed sky not loaded, keeping the drawn one:', e?.message || e));
+    }
     world.setTime(sim.t, sim.cloud);
     buildNetwork();
     drawSystems();
@@ -1192,7 +1217,7 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     buildBVH();
     loadPlants();
     loadFarm();
-    window.GH = { A, select, deselect, flyTo, camera, controls, B, farm4, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
+    window.GH = { A, select, deselect, adopt, realMat, boxUV, flyTo, camera, controls, B, farm4, get sim() { return sim; }, step: (n = 30, dt = 1 / 30) => { fpsAcc = -1e9; for (let i = 0; i < n; i++) frame(dt); }, regrow: () => { if (plantSlots.size) growT = 0; },
       frame: (dt = 1 / 30, draw = true) => { fpsAcc = -1e9; frame(dt, draw); }, get sel() { return sel; }, get ready() { return plantSlots.size > 0 && growT < 0; }, toggle, renderer, scene, world, get bloom() { return bloom; }, dirtyShadows: () => { shadowDirty = true; }, THREE, plantSlots, H };   // console handle for demos
     if (location.hash === '#go') $('#ld-start').click();
   } catch (err) {
