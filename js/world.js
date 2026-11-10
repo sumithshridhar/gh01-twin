@@ -5,7 +5,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 // 12 Oct 2026, video capture: a photographed sky (Poly Haven "kloofendal_48d_partly_cloudy_puresky", CC0) instead of the
 // procedural one. Its sun sits at u = 0.595 of the panorama, 48° up; the horizon haze is #9a9ead.
-const REAL_SKY = { bg: 'assets/sky/kloofendal_48d_8k.jpg', hdr: 'assets/sky/kloofendal_48d_2k.hdr', sunU: 0.595, horizon: 0x9a9ead,
+const REAL_SKY = { bg: 'assets/sky/kloofendal_48d_8k.jpg', hdr: 'assets/sky/kloofendal_48d_1k.hdr', sunU: 0.595, horizon: 0x9a9ead,
   envI: 1.6, bgI: 1.35, exp: 1.15, sunI: 1, hemiI: 1 };      // tuned 12 Oct: as bright as v1 (Y 120-180), 1.3-2x the colour
 
 // Blender (x, y, z-up) → three.js (x, y-up, z)
@@ -247,14 +247,35 @@ export class World {
     inst(new THREE.CylinderGeometry(0.15, 0.22, 2, 6), mat(0x5b4632), tt);
     inst(new THREE.IcosahedronGeometry(1, 3), foliageMaterial(0x3f6b35, { lump: 0.3 }), tc);
     // rocky hills on the horizon: granite domes with scrub, the Kolar skyline
-    const rock = mat(0x8c8678), scrub = mat(0x6f7a52);
+    // 10 Nov 2026: each dome gets an uneven outline and its own mix of bare rock (high up) and scrub (in the folds), smooth
+    // shaded, instead of a plain grey or green half-ball
+    const rock = mat(0x82796c);
+    const cRock = new THREE.Color(0x8a7a66), cScrub = new THREE.Color(0x56663c), cc = new THREE.Color();
+    const hillMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+    const hillGeo = (rad, seed) => {
+      const g = new THREE.SphereGeometry(rad, 56, 20, 0, Math.PI * 2, 0, Math.PI / 2);
+      const p = g.attributes.position, col = new Float32Array(p.count * 3);
+      for (let k = 0; k < p.count; k++) {
+        const x = p.getX(k), y = p.getY(k), z = p.getZ(k);
+        const n = Math.sin(x * 0.07 + seed) * Math.cos(z * 0.09 + seed * 1.7) * 0.5 + Math.sin(x * 0.19 + z * 0.15 + seed * 3) * 0.3;
+        const f = Math.sin(x * 0.55 + seed * 5) * Math.sin(z * 0.6 + y * 0.4 + seed);      // small patches of scrub and rock
+        const w = 1 + n * 0.3;
+        p.setXYZ(k, x * w, y * (1 + n * 0.38), z * w);
+        cc.copy(cScrub).lerp(cRock, THREE.MathUtils.clamp(0.3 + n * 1.1 + f * 0.55 + (y / rad - 0.5) * 0.35, 0, 1)).multiplyScalar(0.92 + f * 0.1);
+        col.set([cc.r, cc.g, cc.b], k * 3);
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      g.computeVertexNormals();
+      return g;
+    };
     for (let i = 0; i < 11; i++) {
       const a = (i / 11) * Math.PI * 2 + 0.3, R = 230 + rnd(i) * 70;
-      const h = new THREE.Mesh(new THREE.SphereGeometry(45 + rnd(i) * 40, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2), i % 3 ? scrub : rock);
+      const rad = 45 + rnd(i) * 40;
+      const h = new THREE.Mesh(hillGeo(rad, i * 2.3 + 1), hillMat);
       h.position.set(20 + Math.cos(a) * R, -14, Math.sin(a) * R);
       h.scale.y = 0.38 + rnd(i + 2) * 0.35;
       s.add(h);
-      const top = -14 + h.geometry.parameters.radius * h.scale.y;     // boulder piles sit on the dome's crown
+      const top = -14 + rad * h.scale.y;     // boulder piles sit on the dome's crown
       for (let k = 0; k < 4; k++) {
         const r = 7 + rnd(i * 5 + k) * 8;
         const b = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), rock);

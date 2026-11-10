@@ -1,5 +1,6 @@
 // Scene menu (17 Oct 2026): the worlds built for the videos, one click each, next to GH-01 itself.
 //   GH-01 farm (default) · soil-bed polyhouse with the R1 rover + the Part 3 watering kit (rover.js) ·
+//   Build R1: the rover's 43 parts on a tarp, fitted in 9 steps (buildr1.js, 10 Nov) ·
 //   Build Part 1 pest-camera bench (bench.js) · melon house (melon.js) · 1-hectare glasshouse with pipe rails (bigfarm.js)
 // Each extra world is loaded the first time it is picked, then shown/hidden (its show() hides the rest of the twin).
 const SCENES = [
@@ -11,6 +12,9 @@ const SCENES = [
   { id: 'water', label: '💧 Part 3 watering kit', mod: './rover.js', share: 'rover', title: 'Build Part 3',
     note: '12 V valve on the zone feed, ESP32 + relay in the box, soil sensor in the bed. Guide: github.com/sumithshridhar/gh01-twin',
     cam: [[1.75, -2.65, 1.1], [0.25, -3.8, 0.82]] },
+  { id: 'buildr1', label: '🔧 Build R1 · 43 parts, 9 steps', mod: './rover.js', share: 'rover', title: 'Build R1',
+    note: 'Every part of the rover on a tarp. Press Next to fit it step by step, the same 9 steps as the build guide.',
+    cam: [[7.6, -11.8, 2.7], [3.2, -7.9, 0.55]] },
   { id: 'bench', label: '📷 Part 1 pest camera', mod: './bench.js', title: 'Build Part 1',
     note: 'Pi Zero 2 W + Camera Module 3 + timer + boost board on the bench, real parts at real size.',
     cam: [[0.32, -0.42, 0.42], [0.02, 0.06, 0.04]] },
@@ -44,7 +48,7 @@ const btn = document.createElement('button');
 btn.className = 'btn';
 btn.id = 'scenesbtn';
 btn.textContent = '🗺 Scenes';
-btn.title = 'More worlds: the R1 rover in a soil polyhouse, the build kits, a melon house, a 1-hectare glasshouse';
+btn.title = 'More worlds: the R1 rover in a soil polyhouse, Build R1 step by step, the build kits, a melon house, a 1-hectare glasshouse';
 const bottom = document.getElementById('bottom');
 bottom.insertBefore(btn, document.getElementById('walk') || null);
 btn.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.toggle('open'); });
@@ -55,8 +59,12 @@ async function go(id) {
   const s = SCENES.find((x) => x.id === id);
   const key = s.share || s.id;
   busy = true;
+  const curKey = SCENES.find((x) => x.id === cur).share || cur;
+  const shown = () => {                             // the menu and GH-01's panels follow what is really on screen
+    document.getElementById('app')?.classList.toggle('alt-scene', cur !== 'gh01');
+    pop.querySelectorAll('button').forEach((b) => b.setAttribute('aria-current', b.dataset.id === cur));
+  };
   try {
-    const curKey = SCENES.find((x) => x.id === cur).share || cur;
     if (curKey !== key && built[curKey]) built[curKey].show(false);
     if (s.mod) {
       if (!built[key]) {
@@ -65,17 +73,21 @@ async function go(id) {
         built[key] = await M.build(GH);
         GH[key === 'bigfarm' ? 'bigFarm' : key] = built[key];
       }
+      GH.deselect?.(true);
       built[key].show(true);
-    }
-    GH.deselect?.(true);
+      cur = s.share || id;                          // the shared world is up, even if its extra part fails to load below
+      shown();
+      await built[key].mode?.(id);
+    } else GH.deselect?.(true);
     GH.flyTo(GH.B(...s.cam[0]), GH.B(...s.cam[1]), 1.6);
     GH.A.toast(s.title, s.note);
     cur = id;
-    document.getElementById('app')?.classList.toggle('alt-scene', id !== 'gh01');   // GH-01's control panels only belong to GH-01
-    pop.querySelectorAll('button').forEach((b) => b.setAttribute('aria-current', b.dataset.id === id));
+    shown();
   } catch (err) {
     console.error(err);
-    GH.A.toast('Scenes', `Could not load: ${err.message || err}`);
+    if (curKey !== key && !built[key]) { built[curKey]?.show(true); }   // nothing new came up: stay where we were
+    shown();
+    GH.A.toast('Scenes', `Could not load: ${err.message || err}. Check the connection and pick the scene again.`);
   } finally {
     busy = false;
   }
