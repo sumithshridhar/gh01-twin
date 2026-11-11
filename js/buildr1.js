@@ -150,7 +150,8 @@ export async function build(GH, parent) {
       ${k ? `<p class="kit-tip">${esc(TIPS[k - 1])}</p>` : ''}
       <ul>${mine.map((p) => `<li>${esc(p.label || p.name.replaceAll('_', ' '))}${p.note ? `<small>${esc(p.note)}</small>` : ''}</li>`).join('')}</ul>
       <p class="foot">The full-height R1 for tomato rows. About ₹2.0–2.1 lakh in parts (Nov 2026 estimate, check before buying).
-        The code is starter code, not yet run on hardware.
+        R1 is a concept: a hose, mud or a crate on the path would stop it, and that is not solved. The code is starter
+        code, not run on hardware.
         <a href="${GUIDE}" target="_blank" rel="noopener">Parts list, wiring and code</a></p>`;
   };
   api.go = (k, quick = false) => {

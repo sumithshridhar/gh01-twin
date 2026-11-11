@@ -944,6 +944,7 @@ export class Sim {
 
   // ── robot patrol (real time) ───────────────────────────────
   robotTick(dt) {
+    if (this.noRailRobot) return;                 // the rail robot idea is dropped (main.js, RAILS)
     const R = this.robot;
     if (R.stuck) return;
     if (R.phase === 'scan') {

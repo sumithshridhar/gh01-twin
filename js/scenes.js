@@ -6,24 +6,18 @@
 const SCENES = [
   { id: 'gh01', label: '🍅 GH-01 farm', title: 'GH-01', note: '45 m² tomato greenhouse and its farm. Click any machine to explode it.',
     cam: [[-7.5, -8.5, 4.2], [4.2, 0.2, 1.4]] },
-  { id: 'rover', label: '🤖 R1 rover · soil polyhouse', mod: './rover.js', title: 'Soil-bed polyhouse',
-    note: 'Strawberry beds under silver mulch, the R1 rover scouting a path, and the Part 3 watering box on the corner column.',
-    cam: [[0.9, -0.75, 1.15], [4.2, -1.575, 0.3]], follow: true },
-  { id: 'water', label: '💧 Part 3 watering kit', mod: './rover.js', share: 'rover', title: 'Build Part 3',
-    note: '12 V valve on the zone feed, ESP32 + relay in the box, soil sensor in the bed. Guide: github.com/sumithshridhar/gh01-twin',
+  { id: 'water', label: '💧 Watering box · built first', mod: './rover.js', share: 'rover', title: 'Build Part 3',
+    note: 'One box waters one bed: a 12 V valve on the zone feed, an ESP32 and relay in the box, a soil sensor in the bed. If anything is wrong the valve stays shut.',
     cam: [[1.75, -2.65, 1.1], [0.25, -3.8, 0.82]] },
-  { id: 'buildr1', label: '🔧 Build R1 · 43 parts, 9 steps', mod: './rover.js', share: 'rover', title: 'Build R1',
-    note: 'Every part of the rover on a tarp. Press Next to fit it step by step, the same 9 steps as the build guide.',
-    cam: [[7.6, -11.8, 2.7], [3.2, -7.9, 0.55]] },
-  { id: 'bench', label: '📷 Part 1 pest camera', mod: './bench.js', title: 'Build Part 1',
+  { id: 'bench', label: '📷 Pest camera · tutorial', mod: './bench.js', title: 'Build Part 1',
     note: 'Pi Zero 2 W + Camera Module 3 + timer + boost board on the bench, real parts at real size.',
     cam: [[0.32, -0.42, 0.42], [0.02, 0.06, 0.04]] },
-  { id: 'melon', label: '🍈 Melon house', mod: './melon.js', title: 'Melon house',
-    note: 'Muskmelons up strings in net bags, watermelons on the ground, and the scout robot with a camera boom.',
-    cam: [[1.8, 2.9, 2.1], [5.4, 0.2, 0.6]] },
-  { id: 'bigfarm', label: '🏭 1-hectare glasshouse', mod: './bigfarm.js', title: '1-hectare glasshouse',
-    note: '76 aisles of heating-pipe rails: how rail robots work at scale.',
-    cam: [[-6, -30, 13], [22, -1, 2.5]] },
+  { id: 'rover', label: '🤖 R1 rover · concept', mod: './rover.js', title: 'R1 rover (concept)',
+    note: 'A concept, not built. On a real farm a hose, mud or a crate on the path would stop it, and that is not solved yet.',
+    cam: [[0.9, -0.75, 1.15], [4.2, -1.575, 0.3]], follow: true },
+  { id: 'buildr1', label: '🔧 R1 as a kit · concept', mod: './rover.js', share: 'rover', title: 'R1 as a kit (concept)',
+    note: 'Every part of the rover on a tarp, fitted in 9 steps. A concept: it shows what the rover would take, not a finished machine.',
+    cam: [[7.6, -11.8, 2.7], [3.2, -7.9, 0.55]] },
 ];
 
 const wait = () => new Promise((r) => { const t = setInterval(() => { if (window.GH && window.GH.ready) { clearInterval(t); r(); } }, 400); });
@@ -48,7 +42,7 @@ const btn = document.createElement('button');
 btn.className = 'btn';
 btn.id = 'scenesbtn';
 btn.textContent = '🗺 Scenes';
-btn.title = 'More worlds: the R1 rover in a soil polyhouse, Build R1 step by step, the build kits, a melon house, a 1-hectare glasshouse';
+btn.title = 'More to see: the watering box, the pest camera, and the R1 rover concept';
 const bottom = document.getElementById('bottom');
 bottom.insertBefore(btn, document.getElementById('walk') || null);
 btn.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.toggle('open'); });
@@ -71,7 +65,7 @@ async function go(id) {
         GH.A.toast(s.title, 'Loading…');
         const M = await import(s.mod);
         built[key] = await M.build(GH);
-        GH[key === 'bigfarm' ? 'bigFarm' : key] = built[key];
+        GH[key] = built[key];
       }
       GH.deselect?.(true);
       built[key].show(true);
