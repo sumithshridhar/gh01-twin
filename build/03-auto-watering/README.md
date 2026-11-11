@@ -76,10 +76,32 @@ Before you buy the valve:
 
 Water reaches the sensor slowly. If the box checks again straight after watering, the soil still reads dry, so it waters
 again, and again: the beds flood. So the code waters for **1 minute, then waits 30 minutes** before it checks again, and
-never waters more than 6 times a day. Change `WATER_MS`, `SOAK_MS` and `MAX_PER_DAY` for your zone and emitter flow
+never waters more than 6 times a day. Change `waterMs` and `soakMs` (in `water_logic.h`) and `MAX_PER_DAY` for your zone and emitter flow
 (1 minute is only a starting point; a strawberry zone usually needs several minutes per shot).
 
 It also refuses to water if the sensor reads something impossible (a pulled-out cable reads like bone-dry soil).
+
+## What keeps it safe (Nov 2026)
+
+A real farm breaks things: the power flickers, a cable falls out, the tank runs dry. The rule in the code is simple: **when something is wrong, the valve stays shut and you get a message.**
+
+- The valve is shut first at power-up, and a normally-closed valve shuts by itself when the power goes.
+- No watering in the first 30 minutes after power-up, so flickering power can't flood a bed.
+- It needs three dry readings in a row. One knocked wire is not enough.
+- An impossible reading (cable out, sensor broken) never opens the valve.
+- If it waters twice and the soil does not get wetter, it stops and tells you: the tank is empty, the line is blocked, or the sensor is out of the soil. It starts again by itself when the soil reads wet.
+- Never more than 6 waterings in 24 powered-on hours, and it remembers the count across power cuts.
+- If the program hangs, a watchdog restarts the board, and a restart shuts the valve.
+- Keep the hand tap on the line. You can always water by hand.
+
+These decisions live in `auto_water/water_logic.h` and are tested on a laptop with a pretend pot (16 checks: a normal week, cable out, empty tank, 20 power cuts, flickering power, a very hot week):
+
+```bash
+pip install ziglang
+bash build/03-auto-watering/tests/run_test.sh
+```
+
+Honest limits: the tests check the decisions, not your wiring. The sketch has not been run on real hardware yet. Timings (1 minute of water, 30 minutes of soak, the limits) are in `water_logic.h` and are starting points to tune on your own bed.
 
 ## Phone messages (optional)
 
