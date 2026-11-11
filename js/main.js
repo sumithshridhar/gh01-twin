@@ -1240,5 +1240,5 @@ $('#ld-start').addEventListener('click', () => {
   camera.position.copy(B(-22, -20, 12));
   controls.target.copy(B(4.2, 0, 1.2));
   flyTo(B(-7.5, -8.5, 4.2), B(4.2, 0.2, 1.4), 2.6);
-  setTimeout(() => A.toast('Welcome to GH-01', 'Click any machine, sensor or plant to explode it into its parts with a blueprint. 🎬 Tour shows the highlights.'), 1500);
+  setTimeout(() => A.toast('The showroom', 'The full greenhouse as a design, not built. Click any machine to open it into its parts. 🎛 Control room shows the live numbers and failure tests.'), 1500);
 });

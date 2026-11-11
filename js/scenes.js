@@ -4,11 +4,11 @@
 //   Build Part 1 pest-camera bench (bench.js) · melon house (melon.js) · 1-hectare glasshouse with pipe rails (bigfarm.js)
 // Each extra world is loaded the first time it is picked, then shown/hidden (its show() hides the rest of the twin).
 const SCENES = [
-  { id: 'gh01', label: '🍅 GH-01 farm', title: 'GH-01', note: '45 m² tomato greenhouse and its farm. Click any machine to explode it.',
+  { id: 'gh01', label: '🏠 Full greenhouse · showroom', title: 'The showroom', note: 'The full greenhouse as a design: 45 m² of tomatoes and its farm. Not built. Click any machine to open it.',
     cam: [[-7.5, -8.5, 4.2], [4.2, 0.2, 1.4]] },
   { id: 'water', label: '💧 Watering box · built first', mod: './rover.js', share: 'rover', title: 'Build Part 3',
     note: 'One box waters one bed: a 12 V valve on the zone feed, an ESP32 and relay in the box, a soil sensor in the bed. If anything is wrong the valve stays shut.',
-    cam: [[1.75, -2.65, 1.1], [0.25, -3.8, 0.82]] },
+    cam: [[3.9, -1.9, 1.75], [1.15, -3.45, 0.55]] },
   { id: 'bench', label: '📷 Pest camera · tutorial', mod: './bench.js', title: 'Build Part 1',
     note: 'Pi Zero 2 W + Camera Module 3 + timer + boost board on the bench, real parts at real size.',
     cam: [[0.32, -0.42, 0.42], [0.02, 0.06, 0.04]] },
@@ -57,6 +57,7 @@ async function go(id) {
   const shown = () => {                             // the menu and GH-01's panels follow what is really on screen
     document.getElementById('app')?.classList.toggle('alt-scene', cur !== 'gh01');
     pop.querySelectorAll('button').forEach((b) => b.setAttribute('aria-current', b.dataset.id === cur));
+    dispatchEvent(new CustomEvent('gh-scene', { detail: cur }));     // frontdoor.js labels the view, breakit.js shows its panel
   };
   try {
     if (curKey !== key && built[curKey]) built[curKey].show(false);
