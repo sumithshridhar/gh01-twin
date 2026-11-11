@@ -108,7 +108,7 @@ export async function build(GH) {
     if (kitOn && !api.kit) api.kit = await (await import('./buildr1.js')).build(GH, root);
     api.kitOn = kitOn;
     api.kit?.show(kitOn);
-    if (rover) rover.visible = !kitOn;
+    if (rover) rover.visible = id === 'rover';      // the concept rover only drives in its own scene, not beside the watering box
     if (root.visible) world.sun.target.position.copy(kitOn ? B(5, -5, 0) : B(6, 0, 0));
     GH.dirtyShadows?.();
   };

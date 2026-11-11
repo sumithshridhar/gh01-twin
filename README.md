@@ -20,9 +20,9 @@ disease between houses. Design, parts, software and biosecurity: [rover/](rover/
 **Build it yourself:** [Part 3: plants that water themselves](build/03-auto-watering/) (ESP32 + soil sensor + a 12 V valve on one drip zone, ≈ ₹1,750, no soldering) · [Part 2: the R1 rover](build/02-r1-rover/) (parts, every wire, starter code) · [Part 1: a pest-counting camera](build/01-pest-camera/) (Pi Zero 2 W + Camera Module 3 + TPL5110 timer,
 AI on the farm's Pi 5 + AI HAT+): parts, wiring, code.
 
-**🗺 Scenes** (bottom bar): the R1 rover in a soil-bed strawberry polyhouse with the Part 3 watering kit, the Part 1 pest-camera bench, a melon house, a 1-hectare glasshouse. Direct link: `?scene=rover`. In the soil polyhouse you can click the rover, the wheel bath, the mist arch and the beds to explode them, like the machines in GH-01.
+**What is real first (Nov 2026).** GH-01 is a design, and a real farm is not predictable from a desk. So the first things to be built are two small boxes that still help when everything else fails: the [watering box](build/03-auto-watering/README.md) and the [heat-and-dew alarm](build/04-heat-dew-alarm/README.md). Their decisions are tested on a laptop (32 checks). The R1 rover is a **concept**, and the rail robot is **dropped**. What is known to break each part, and what is still unsolved, is in [FAILURES.md](FAILURES.md).
 
-**New (Nov 2026): 🔧 Build R1.** The rover's 43 parts lie on a tarp and go on step by step, the same 9 steps as the [build guide](build/02-r1-rover/README.md), with one tip per step. Direct link: `?scene=buildr1`.
+**🗺 Scenes** (bottom bar): the watering box on a strawberry bed, the Part 1 pest-camera bench, the R1 rover concept in a soil polyhouse, and R1 as a kit of 43 parts fitted in 9 steps. Direct links: `?scene=water`, `?scene=bench`, `?scene=rover`, `?scene=buildr1`. Click the rover, the wheel bath, the mist arch or the beds to explode them.
 
 **Run it on your computer:** `python tools/serve.py`, then open http://127.0.0.1:8765. The site now uses the photographed sky and true colours from the videos for everyone (`?look=v1` brings back the old flat look).
 

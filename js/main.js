@@ -26,6 +26,9 @@ const MOBILE = matchMedia('(max-width: 820px)').matches;
 
 // ?capture: the video recorder drives frames itself (GH.frame) and the HTML HUD is hidden; overlays are added in Remotion
 const CAPTURE = new URLSearchParams(location.search).has('capture');
+// 11 Nov 2026: the rail robot is dropped (local polyhouses have no rails, and any obstacle stops it). It is out of
+// the default view; ?rails brings the old idea back, and video capture keeps it for the older stories
+const RAILS = CAPTURE || new URLSearchParams(location.search).has('rails');
 // ?capture&hud (13 Oct 2026): frame-stepped recording with the game UI on screen ("gameplay" videos)
 const HUD = new URLSearchParams(location.search).has('hud');
 // look v2: the photographed sky + neutral tone mapping. First only for video capture (12 Oct 2026); since 10 Nov 2026 it is
@@ -1000,7 +1003,8 @@ function tour() {
     [0, () => { if (sel) deselect(true); flyTo(B(-7.5, -8.5, 4.2), B(4.2, 0.2, 1.4), 2); A.toast('GH-01', '45 m² tomato greenhouse. Sensors measure, the AI advises, a safety PLC decides, machines act.'); }],
     [5000, () => { flyTo(B(2.9, 0.9, 2.2), B(0.8, -1.6, 0.9), 2); A.toast('Technical corner', 'Fresh water, stock tanks A/B/acid, dosing pumps, pH/EC flow cell, pump, filter and flow meter on one skid.'); }],
     [10000, () => select('irrigation_pump')],
-    [16000, () => { deselect(); A.toast('Scout robot', 'Drives the pipe rails, photographs every plant from 5 heights and pollinates open flowers with air pulses.'); flyTo(B(3.0, -0.6, 1.5), B(5.5, -0.8, 1.0), 2); }],
+    [16000, () => { deselect(); A.toast(...(RAILS ? ['Scout robot', 'Drives the pipe rails, photographs every plant from 5 heights and pollinates open flowers with air pulses.']
+      : ['Start small', 'What gets built first is two small boxes: one waters a bed when the soil is dry, one warns before dew or heat hurts the crop.'])); flyTo(B(3.0, -0.6, 1.5), B(5.5, -0.8, 1.0), 2); }],
     [22000, () => select('plant_042')],
     [28000, () => { deselect(); A.systemsView(true); sim.scenario('irrigate'); flyTo(B(3.5, -0.15, 2.45), B(1.35, -0.95, 1.0), 2); A.toast('Watch the chain', 'Sensors → data → AI → decision → safety PLC → pump + valves → flow confirmed.'); }],
     [40000, () => { A.systemsView(false); flyTo(B(-7.5, 8.5, 5.5), B(4.5, 0, 1.2), 2.5); A.toast('Your turn', 'Click anything to explode it. Try a failure scenario bottom-left.'); stopTour(); }],
@@ -1194,6 +1198,11 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
     hookActuators();
     sim = new Sim(A, SIMDATA);
     A.sim = sim;
+    if (!RAILS) {                                   // no rail robot: not drawn, not listed, not simulated, no scenarios about it
+      sim.noRailRobot = true;
+      for (const id of ['scout_robot', 'robot_dock', 'pipe_rails']) { const c = A.comps.get(id); if (c) { c.root.visible = false; c.alt = true; } }
+      document.querySelectorAll('[data-s="robot"], [data-s="disease"]').forEach((b) => b.remove());
+    }
     if (LOOK === 'v2' && CAPTURE) { setProgress('Loading the sky…'); await world.useRealSky(); }
     else if (LOOK === 'v2') {                       // 3.3 MB: it arrives behind the scenes, the drawn sky stands in until then
       world.useRealSky().then(() => {
