@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { World, B, Bv } from './world.js';
 import { FX } from './fx.js';
@@ -61,6 +62,18 @@ function buildComposer() {
   const rt = new THREE.WebGLRenderTarget(innerWidth * PR, innerHeight * PR, { type: THREE.HalfFloatType, samples: 4 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
+  // 11 Nov 2026: soft contact shadows (ambient occlusion), so machines sit on the floor instead of floating over it.
+  // Glass, film, nets and water are left out of its depth picture, or the roof would shade everything under it. ?ao=0 = off
+  if (!new URLSearchParams(location.search).has('ao') || new URLSearchParams(location.search).get('ao') !== '0') {
+    try {
+      const ao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+      ao.updateGtaoMaterial({ radius: 0.55, distanceExponent: 1.2, thickness: 1.0, scale: 1.15, samples: 12, screenSpaceRadius: false });
+      ao.blendIntensity = 0.9;
+      const hide = ao.overrideVisibility.bind(ao);
+      ao.overrideVisibility = () => { hide(); scene.traverse((o) => { if (o.visible && (o.isSprite || (o.isMesh && (o.userData.see || o.userData.fx || (!Array.isArray(o.material) && o.material?.transparent))))) o.visible = false; }); };
+      composer.addPass(ao);
+    } catch (e) { console.warn('Ambient occlusion off:', e?.message || e); }
+  }
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.45, 1.6);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -1237,8 +1250,8 @@ async function loadFarm() {   // 6 Oct 2026: the farm round the house (solar pac
 $('#ld-start').addEventListener('click', () => {
   A.sound.ensure();
   $('#loading').classList.add('done');
-  camera.position.copy(B(-22, -20, 12));
-  controls.target.copy(B(4.2, 0, 1.2));
-  flyTo(B(-7.5, -8.5, 4.2), B(4.2, 0.2, 1.4), 2.6);
-  setTimeout(() => A.toast('Welcome to GH-01', 'Click any machine, sensor or plant to explode it into its parts with a blueprint. 🎬 Tour shows the highlights.'), 1500);
+  camera.position.copy(B(-66, -76, 44));          // first the whole slice of land floating in the sky, then down to the house
+  controls.target.copy(B(16, 0, 0));
+  flyTo(B(-7.5, -8.5, 4.2), B(4.2, 0.2, 1.4), 4.6);
+  setTimeout(() => A.toast('The showroom', 'The full greenhouse as a design, not built. Click any machine to open it into its parts. ✂ Slice cuts the house open. 🎛 Control room shows the live numbers and failure tests.'), 5200);
 });
