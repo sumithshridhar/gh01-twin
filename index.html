@@ -198,6 +198,9 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 #what.real{background:var(--leaf);color:#0A1211}
 .scen details{grid-column:1/-1}.scen details summary{cursor:pointer;color:var(--muted);font-size:12px;padding:4px 2px}
 .scen details .grid{margin-top:6px}
+/* a lens: the picture falls off a little towards the corners, like a photograph */
+#vig{position:absolute;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at 50% 46%,transparent 52%,rgba(3,9,13,.42) 100%)}
+#app.capture #vig,#app.focus #vig{display:none}
 /* try to break it (watering box) */
 #breakit{top:calc(64px + var(--safe-t));right:10px;width:356px;max-height:calc(100% - 140px);overflow-y:auto;padding:12px;display:grid;gap:10px}
 #breakit h3{margin:0;font:700 20px/1 var(--display);letter-spacing:.04em}
@@ -266,6 +269,7 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 
 <div id="app">
   <canvas id="c" aria-label="3D greenhouse"></canvas>
+  <div id="vig"></div>
   <svg id="leaders"></svg>
   <div id="labels"></div>
 
@@ -400,3 +404,4 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 <script type="module" src="js/scenes.js"></script>
 <script type="module" src="js/frontdoor.js"></script>
 <script type="module" src="js/breakit.js"></script>
+<script type="module" src="js/wow.js"></script>

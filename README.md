@@ -42,7 +42,9 @@ Each real test adds a line there.
 
 Pick **The full greenhouse** on the site. It opens clean; **🎛 Control room** shows the live numbers, every system and
 the failure tests (pump failure, sensor failure, heat wave, water shortage, power cut, and ten more).
-Click any machine to open it into its parts with a blueprint. Walk mode: W A S D.
+Click any machine to open it into its parts with a blueprint. **✂ Slice** cuts the greenhouse open like a cake.
+Walk mode: W A S D. The farm is shown as a slice of land lifted out of the ground; `?world=full` puts the village,
+fields and hills back round it.
 
 The rule the whole design follows: the edge AI **suggests**, a safety PLC **decides** within hard limits, and hard-wired
 cut-offs (float switch, thermostat) **protect** the crop even if every computer fails.
