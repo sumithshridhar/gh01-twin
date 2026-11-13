@@ -36,13 +36,19 @@ fail the farm is no worse than a normal day. The R1 rover is a concept. The rail
 
 ## R1 rover (concept)
 
+Every R1 problem raised so far, with the fix, the laptop evidence and the bench test still to do:
+[build/02-r1-rover/ISSUES.md](build/02-r1-rover/ISSUES.md) (13 Nov). Nothing below has run on a real rover yet.
+
 | What goes wrong | Status |
 | --- | --- |
-| A hose, a crate, mud or a fallen stake on the path | **Open.** One small obstacle stops it. Not solved |
-| Plants grow into the aisle and differently on every farm | **Open.** |
-| The cameras miss leaves hidden behind other leaves | **Open.** |
-| Telling disease from a photo | **Open, and not claimed.** Field photo apps are right about three times in four at best |
-| About ₹2 lakh in parts; pays back in about 3.5 years on one acre at best | **Open.** Too costly for a small house |
+| A hose, a crate, mud or a fallen stake on the path | **Guarded in code and the simulator, not on hardware.** It stops before anything standing in the path and waits; it crosses up to 20 mm and asks for a ramp over higher ones; it notices mud before digging in; otherwise it asks a person, with the place, and carries on from the same metre. 200 simulated paths: 0 hits |
+| Driving between houses breaks on any surprise | **Changed:** a worker drives it between houses; it starts by itself only from a checked bed tag and path width |
+| A released bumper or e-stop let the wheels start again by themselves | **Fixed in firmware and wiring (RESET latch), tested on a fake Arduino.** Bench test B1 |
+| Plants grow into the aisle and differently on every farm | **Guarded:** the lidar follows the soil walls under the leaves, and it stops rather than brush plants. It needs paths of about 46 cm: measure them first |
+| The cameras miss leaves hidden behind other leaves | **Reduced, not solved.** Portrait cameras see 99 % of the canopy band (v1: 63 %), a second angle in risky houses, a check-by-hand list for what it missed. Hidden leaves stay hidden |
+| Telling disease from a photo | **Not claimed.** R1 only flags "different from healthy"; a person names it; every spray needs a person's name |
+| About ₹2 lakh in parts; pays back in about 3.5 years on one acre at best | **Still open: engineering can't fix it.** One parts list now: full ₹2.00–2.18 lakh, Scout ₹1.25–1.38 lakh, trolley ₹0.58–0.63 lakh. None pays back on labour + spray on small houses; only measured crop savings could (bench test B15) |
+| The electronics box in a polyhouse at noon (~83 °C) | **Changed:** converters out, white sun shield, morning and late-afternoon patrols; about 44 °C. Bench test B10 |
 
 ## Dropped
 

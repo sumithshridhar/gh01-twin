@@ -1,0 +1,42 @@
+part,qty_full,qty_scout,qty_trolley,unit_low,unit_high,per,price_source,why
+2040/3030 aluminium extrusion (frame + mast),1,1,0,3000,3000,rover,estimate Oct 2026,frame and mast
+"M5 T-nuts, bolts, corner brackets",1,1,1,1200,1200,rover,estimate Oct 2026,everything bolts into the slots
+6 mm aluminium wheel plates,4,4,0,200,200,rover,estimate Oct 2026,wheel brackets
+"10"" 24 V 350 W hub motor, pneumatic tyre, Hall sensors",4,4,0,6250,6300,rover,checked 4 Nov 2026 (Robokits),each wheel its own motor
+ZS-X11H BLDC driver,4,4,0,1000,1200,rover,checked 4 Nov 2026 (Probots),one per wheel
+"24 V 30 Ah LiFePO4, BMS >= 50 A",1,0,0,15000,25000,rover,listing Oct-Nov 2026,full R1: 5 h + sprayer
+"24 V 15 Ah LiFePO4, BMS >= 50 A",0,1,0,8000,13000,rover,estimate (not price-checked),scout: 2 h patrol + 25 % reserve uses 130 of 307 Wh (r1_calcs.py)
+"12 V 6 Ah LiFePO4 + 12->5 V 5 A converter",0,0,1,3000,4000,rover,estimate (not price-checked),trolley: Pi + rings for a morning round
+"60 A fuse, isolator switch, 100 A contactor",1,1,0,2500,2500,rover,estimate Oct 2026,the power chain
+"Emergency stop (NC) + 2 bumper microswitches",1,1,0,600,600,rover,estimate Oct 2026,cut the motors without software
+"RESET latch: green 22 mm push button + 24 V DPDT relay + socket",1,1,0,400,600,rover,estimate (not price-checked),NEW: a released bumper can't restart the wheels (issue E1)
+"10 A fuse + holder, sprayer branch after the contactor",1,0,0,150,200,rover,estimate (not price-checked),NEW: the e-stop also cuts the pump in hardware
+"DC-DC converters 24->5 V 5 A, 24->12 V 3 A, 24->5 V 3 A",1,1,0,1800,1800,rover,estimate Oct 2026,clean supplies; NEW: mounted on the deck outside the box (heat)
+"Raspberry Pi 5 8 GB + cooler + 64 GB card",1,1,1,24000,24000,rover,checked 4 Nov 2026 (Robocraze),the brain
+Raspberry Pi AI HAT+ 26 TOPS,1,0,0,11300,11800,rover,checked 4 Nov 2026 (Robocraze),full only: scout and trolley score photos overnight at the dock
+Arduino Mega 2560 clone,1,1,0,1052,1200,rover,checked 4 Nov 2026 (Robocraze),motor drivers + relays + safety inputs
+Arducam 12 MP IMX708 USB camera,7,3,2,9200,9238,rover,checked 4 Nov 2026 (Amazon.in),"full 6 + front, scout 2 + front, trolley 2"
+7-port powered USB 3.0 hub,1,1,0,2000,2000,rover,estimate Oct 2026,one cable from the mast
+"LED ring 12 V + IP67 camera box with glass",7,3,2,570,600,rover,estimate Oct 2026,the same light for every photo
+Slamtec RPLIDAR C1,1,1,0,6100,9800,rover,checked 4 Nov 2026 (Tannatech / ThinkRobotics),"sees the bed walls; NEW: mounted low, under the bed tops"
+VL53L1X ToF distance sensor,2,2,0,600,900,rover,estimate (not price-checked),NEW: sees hoses and pipes below the lidar (issue S1)
+PMW3901 optical-flow sensor,1,1,1,1500,2500,rover,estimate (not price-checked),NEW: true ground speed: notices mud and keeps photos 25 cm apart
+"15 L tank + 24 V diaphragm pump + filter",1,0,0,5000,5000,rover,estimate Oct 2026,the sprayer (full only)
+24 V 1/4 in NC solenoid valve,6,0,0,597,600,rover,checked 4 Nov 2026 (Robu),one valve per nozzle
+TeeJet ConeJet TXA8001VK tip + cap + body,6,0,0,700,700,rover,estimate Oct 2026,fine hollow cone
+"6 mm PU tube 10 m + push-fit fittings",1,0,0,1500,1500,rover,estimate Oct 2026,no glue
+16-channel 5 V relay module (opto),1,1,0,700,700,rover,estimate Oct 2026,valves / lights / rings / drive enable
+24 V 3-colour tower light,1,1,0,1500,1500,rover,estimate Oct 2026,green scouting / amber spraying / red stopped
+"IP65 box 300 x 220 x 120 + glands + DIN terminals",1,1,1,1800,1800,rover,estimate Oct 2026,weatherproof electronics
+"White sun shield (sheet + 4 standoffs, 2 cm air gap)",1,1,1,300,500,rover,estimate (not price-checked),NEW: box stays under 60 C at noon (r1_calcs.py)
+"Deck + tray plates, rubber bumper strip",1,1,0,2500,2500,rover,estimate Oct 2026,deck and tray
+"Drive-on dock: 29.2 V 10 A charger + spring contacts + pads",1,0,0,6000,6000,rover,estimate Oct 2026,full: charges itself
+"29.2 V 5 A LiFePO4 charger (plug in)",0,1,0,2500,3500,rover,estimate (not price-checked),scout: a worker plugs it in
+14.6 V LiFePO4 charger,0,0,1,1000,1500,rover,estimate (not price-checked),trolley
+"Anderson SB50 battery plug + quick-release strap + cable lock",1,1,0,500,900,rover,estimate (not price-checked),theft: battery and brain box come off in a minute and go indoors at night
+"Wire, ferrules, ring terminals",1,1,1,2500,2500,rover,estimate Oct 2026,
+"Hand-trolley frame + 4 x 6 in pneumatic wheels",0,0,1,3500,5000,rover,estimate (not price-checked),trolley: pushed by the worker on the daily round
+Wheel bath at each door (tray + ramps),1,1,1,4000,6000,door,model estimate (rover.py),biosecurity: tyres through disinfectant
+Disinfectant mist arch at each door,1,0,0,8000,12000,door,model estimate (rover.py),full: cleans mast and cameras
+Hand pump sprayer for the wipe-down at each door,0,1,1,500,800,door,estimate (not price-checked),scout/trolley: a worker mists the mast in 1 min instead of the arch
+4G router + LoRa gateway on a pole,1,0,0,12000,18000,farm,model estimate (rover.py),full: alerts from inside the house; scout uses the farm's Wi-Fi

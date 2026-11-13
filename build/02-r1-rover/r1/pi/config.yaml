@@ -1,24 +1,33 @@
 # R1 rover settings for one farm. Starter values: measure your own and change them here.
 serial_port: /dev/ttyACM0        # the Arduino Mega (ls /dev/ttyACM*)
-pin: "4826"                      # phone PIN for driving; change it
+pin: "CHANGE-ME"                 # phone PIN for driving: at least 6 digits. r1_drive.py refuses to start until you set it
 web_port: 8080
+drive_speed_pct: 40              # joystick full = 40 % (about 0.3 m/s) while learning
 
 wheel:
   diameter_m: 0.254              # 10" tyre
   pulses_per_rev: 90             # ZS-X11H speed-pulse output per wheel turn; measure: mark the tyre, turn it once by hand, read the count
 photo_every_m: 0.25
 
+# Cameras in PORTRAIT (turned 90 degrees in their boxes): the long side of the picture covers the plant's height.
 cameras:                         # /dev/video* index of each USB camera (v4l2-ctl --list-devices); side L/R, height in m
-  - {name: L1, device: 0, side: left,  height: 0.62}
-  - {name: R1, device: 2, side: right, height: 0.62}
-  - {name: L2, device: 4, side: left,  height: 1.22}
-  - {name: R2, device: 6, side: right, height: 1.22}
-  - {name: L3, device: 8, side: left,  height: 1.82}
-  - {name: R3, device: 10, side: right, height: 1.82}
+  - {name: L1, device: 0, side: left,  height: 0.62, portrait: true}
+  - {name: R1, device: 2, side: right, height: 0.62, portrait: true}
+  - {name: L2, device: 4, side: left,  height: 1.22, portrait: true}
+  - {name: R2, device: 6, side: right, height: 1.22, portrait: true}
+  - {name: L3, device: 8, side: left,  height: 1.82, portrait: true}
+  - {name: R3, device: 10, side: right, height: 1.82, portrait: true}
+front_camera: 12                 # /dev/video index of the front camera: reads the QR tag (H<house>-B<bed>) on each bed-end stake
+camera_settings:                 # fixed, so every photo looks the same; the LED rings stay on for the whole path
+  exposure_100us: 10             # 1/1000 s. Raise it if photos are dark with the rings on
+  wb_kelvin: 5000
+  settle_frames: 4
 
+# Each house: its crop (r1_mission.CROPS), beds, path length and the width of the paths at the bottom of the beds.
+# MEASURE the path widths: R1 needs 48 cm or more (ISSUES.md S4). Narrower paths: the camera trolley.
 houses:
-  - {id: 1, name: "House 1", crop: tomato, beds: 10, next_picking: "2026-10-22"}
-  - {id: 2, name: "House 2", crop: strawberry, beds: 15, next_picking: "2026-10-18"}
+  - {id: 1, name: "House 1", crop: tomato, beds: 10, bed_len_m: 30, path_w_m: 0.55, next_picking: "2026-10-22"}
+  - {id: 2, name: "House 2", crop: strawberry, beds: 15, bed_len_m: 30, path_w_m: 0.45, next_picking: "2026-10-18"}
 
 # Only products listed here can be sprayed, only on the crops listed, and only if their waiting period
 # (days between spraying and picking) ends before the house's next picking. Copy these from the product label.
@@ -27,5 +36,8 @@ products:
   # - {name: "<product on the label>", crops: [tomato], wait_days: 5}
 
 valves: [L1, R1, L2, R2, L3, R3]   # relay order on the Mega (V 0 .. V 5)
-spray_seconds: 1.5
+spray_seconds: 1.5                 # the I/O board closes any valve after 4 s whatever happens
 door_sensor_file: /run/r1/house_occupied   # written by a door/PIR sensor service: "1" = someone inside
+
+battery_wh: 768                  # 24 V 30 Ah. R1-Scout uses 24 V 15 Ah = 384 (r1_calcs.py, power budget)
+lidar_port: /dev/ttyUSB0         # RPLIDAR C1 on its USB adapter, 460800 baud

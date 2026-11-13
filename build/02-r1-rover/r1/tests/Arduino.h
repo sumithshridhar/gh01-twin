@@ -8,7 +8,7 @@
 
 typedef uint8_t byte;
 enum { LOW = 0, HIGH = 1, INPUT = 0, OUTPUT = 1, INPUT_PULLUP = 2, RISING = 3 };
-const uint8_t A0 = 54, A1 = 55;
+const uint8_t A0 = 54, A1 = 55, A2 = 56, A3 = 57;
 #define constrain(x, lo, hi) ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
 #define digitalPinToInterrupt(p) (p)
 

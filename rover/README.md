@@ -2,13 +2,17 @@
 
 Most greenhouse robots ride on the heating pipes of Dutch-style glasshouses. Indian polyhouses have no pipes: crops grow in
 raised soil beds under mulch, with 40–60 cm paths between them, margins are low and farm labour costs about ₹550 a day.
-R1 is designed for that: a 36 cm wide rover that drives in the path, photographs every plant, predicts disease risk, and
-sprays only the plants a human approves. One rover serves several houses and crops.
+R1 is designed for that: a 36 cm wide rover that drives in the path, photographs the plants (and lists what it could
+not see), predicts disease risk from the climate, and sprays only the plants a human approves. One rover serves several
+houses and crops. **It is a concept: designed, simulated and laptop-tested, not built.**
 
 ![R1 review sheet](renders/R1-review-sheet.jpg)
 
 **Build it yourself:** [build/02-r1-rover](../build/02-r1-rover/): the full parts list with prices, every wire, and starter code.
 **The three problems we hadn't solved** (an AI that doesn't know your farm, weak 4G inside, too many alerts): [SOLUTIONS.md](SOLUTIONS.md).
+**Everything else that would stop it working** (obstacles, mud, changing houses, plants growing in, hidden leaves, heat,
+cost, and 14 faults found in our own code), each with its fix and test: [build/02-r1-rover/ISSUES.md](../build/02-r1-rover/ISSUES.md).
+The 3D model and the renders still show the first design (lidar up high, landscape cameras).
 
 ## The rover (real parts, real sizes)
 
@@ -22,17 +26,20 @@ from Indian listings (Nov 2026), so check each one before buying.
 | 24 V 30 Ah LiFePO4 + BMS | ~5 h, slung low so the mast can't tip it | 15–25k |
 | Raspberry Pi 5 8 GB + AI HAT+ (26 TOPS) | route, cameras, on-board AI that works offline | 24k + 11k |
 | 7 × USB camera (Arducam 12 MP IMX708 USB-C) + powered USB 3.0 hub | 6 on the mast (3 heights × 2 sides), 1 front; plug and play | 7 × 9,200 |
-| Slamtec RPLIDAR C1 | sees both bed walls, keeps it centred | 6–10k |
+| Slamtec RPLIDAR C1, mounted low under the bed tops, + 2 ToF step sensors + a ground-speed sensor | sees the bed walls, low hoses and pipes, and mud | 9–15k |
 | 24 V diaphragm sprayer pump, 6 solenoid valves, 6 TeeJet ConeJet tips, 15 L tank | one valve per nozzle: sprays one side, one height | ~12k |
-| 2040 / 4040 aluminium extrusion, IP65 box, e-stop, LED beacon, bumpers, 4G router | frame and safety | ~20k |
-| **Total** | | **≈ ₹2.0–2.1 lakh** |
+| 2040 / 4040 aluminium extrusion, IP65 box + sun shield, e-stop with a RESET latch, LED beacon, bumpers | frame and safety | ~20k |
+| **Total** (one list: [bom.csv](../build/02-r1-rover/r1/calc/bom.csv)) | | **₹2.00–2.18 lakh** |
+
+Cheaper ways to build it, and why none of them pays back on labour alone yet:
+[build/02-r1-rover](../build/02-r1-rover/#three-ways-to-build-it).
 
 Prices checked on 4 Nov 2026: Pi 5 8 GB ₹21,999 ([Robocraze](https://robocraze.com/products/raspberry-pi-5-8gb)) with cooler and card, AI HAT+ ₹11,309 ([Robocraze](https://robocraze.com/products/official-raspberry-pi-ai-hat-26-tops)),
 USB camera ₹9,238 ([Amazon.in](https://www.amazon.in/Arducam-IMX708-Fixed-Focus-Camera-Module/dp/B0CJF1NYNP)), lidar ₹6,099–9,800 ([Tannatech](https://tannatechbiz.com/rplidar-c1-360-degree-laser-scanner.html), [ThinkRobotics](https://thinkrobotics.com/products/slamtec-rplidar-c1-laser-ranging-sensor)). Every line, with sources: [build/02-r1-rover](../build/02-r1-rover/#parts-indian-prices-nov-2026-estimates-check-before-buying).
 
 - **Body:** 36 cm wide, 70 cm long. Battery and tank sit between the wheels, 10 cm off the ground.
-- **Mast:** telescopic, set once per crop: 1.95 m for tomato, 0.68 m for strawberry.
-- **Cameras:** USB, not the Pi's camera ports: users report the 4-way camera adapter doesn't detect Camera Module 3 on a Pi 5, while the USB version of the same sensor just plugs in. Each has a white LED flash ring, so photos look the same at 9 AM and 4 PM. The lowest pair tilts 25° up to see leaf undersides, where whitefly and mites hide.
+- **Mast:** telescopic, set once per crop: 1.95 m for tomato, 0.91 m for strawberry (cameras at 0.85 m, above the plants).
+- **Cameras:** USB, not the Pi's camera ports: users report the 4-way camera adapter doesn't detect Camera Module 3 on a Pi 5, while the USB version of the same sensor just plugs in. They are turned to portrait, so each one covers more of the plant's height, and they take turns, one at a time. Each has a white LED ring that stays on for the whole path, with fixed exposure, so photos look the same at 9 AM and 4 PM. The lowest pair tilts 10° up, towards the leaf undersides where whitefly and mites hide.
 
 ## Software: semi-automatic
 
@@ -68,7 +75,11 @@ Done right, the rover cuts spread: fewer people walk every row every day.
 
 ## Build it in steps (cheapest first)
 
-1. **Eyes on a trolley (₹15–25k):** the camera mast on a hand-pushed trolley, a climate box per house, phone alerts.
+0. **A phone on a stick (almost free):** 4 weeks of photos on the worker's daily round, the grower's taps on each
+   one, and his own record of what he found. This measures the one number that decides whether R1 is worth building:
+   does an early warning save crop? (bench test B15 in [ISSUES.md](../build/02-r1-rover/ISSUES.md))
+1. **Eyes on a trolley (about ₹0.6 lakh at Nov 2026 prices; the ₹15–25k first estimate used Oct prices):** the camera
+   mast on a hand-pushed trolley, a climate box per house, phone alerts. 87 % of it carries over into step 2.
 2. **Add wheels:** it drives the rows itself; a worker moves it between houses.
 3. **Add the sprayer:** spot spraying with phone approval and the locks.
 
