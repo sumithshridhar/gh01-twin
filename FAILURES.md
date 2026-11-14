@@ -34,6 +34,22 @@ fail the farm is no worse than a normal day. The R1 rover is a concept. The rail
 | No internet at the farm, so no message arrives | **Open.** Wi-Fi only today; SMS or a local siren later |
 | The box is not built and has no board sketch | **Open.** |
 
+## Hydro box (Part 5, added 14 Nov 2026)
+
+| What goes wrong | Status |
+| --- | --- |
+| Reservoir runs low, pump runs dry | Guarded and tested: the float switch stops the pump at once (and is wired in series, so it works with no computer) |
+| Pump dies, line blocks, or an air lock | Guarded and tested: warns at once, tries again every 30 minutes, never runs dry |
+| Nutrient bottle empty or a dosing tube blocked | Guarded and tested: 2 doses that change nothing, then it stops that channel and warns |
+| The pH probe drifts and reads high | Guarded and tested: 2 doses of pH-down, not 30, then it stops and warns |
+| Wrong bottle on a dosing pump | Guarded and tested: a dose that moves the reading the wrong way stops dosing at once |
+| Probe unplugged, impossible numbers, or stuck on one value | Guarded and tested: no dosing at all, and a warning |
+| Flickering power doses the tank again and again | Guarded and tested: no dosing for 30 minutes after power-up; 6 doses a day per channel, kept across cuts |
+| A dead pump leaves the roots without water | **Open.** The box can only warn. A spare pump is the real fix |
+| How often a hobby pH probe needs calibrating here | **Open.** Unknown until a real tank runs |
+| The bands and dose sizes are right for a given crop | **Open.** Starting points only |
+| The box is not built and has no board sketch | **Open.** |
+
 ## R1 rover (concept)
 
 | What goes wrong | Status |

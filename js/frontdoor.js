@@ -19,7 +19,7 @@ ctrl?.addEventListener('click', () => {
 });
 
 // what is on screen
-const WHAT = { gh01: ['Showroom · a design, not built', ''], water: ['Watering box · being built first', 'real'], bench: ['Pest camera · tutorial', ''],
+const WHAT = { gh01: ['Showroom · a design, not built', ''], water: ['Watering box · being built first', 'real'], hydro: ['Hydro box · new, tested on a laptop', ''], bench: ['Pest camera · tutorial', ''],
   rover: ['R1 rover · concept, not built', ''], buildr1: ['R1 as a kit · concept', ''] };
 addEventListener('gh-scene', (e) => {
   const [text, cls] = WHAT[e.detail] || WHAT.gh01;
@@ -35,6 +35,16 @@ $('#door-water')?.addEventListener('click', async () => {
   const GH = await until(() => window.GH?.scenes && window.GH);
   GH.A.sound?.ensure?.();
   await GH.scenes.go('water');
+  loading.classList.add('done');
+  if (step) step.textContent = 'Ready.';
+});
+// door: the hydro box (14 Nov 2026), the same way as the watering box
+$('#door-hydro')?.addEventListener('click', async () => {
+  const step = $('#ld-step');
+  if (step) step.textContent = 'Opening the hydro box…';
+  const GH = await until(() => window.GH?.scenes && window.GH);
+  GH.A.sound?.ensure?.();
+  await GH.scenes.go('hydro');
   loading.classList.add('done');
   if (step) step.textContent = 'Ready.';
 });

@@ -1,6 +1,6 @@
 # GH-01
 
-**Two small boxes that water and warn a farm.** Designed and tested in software first, for polyhouse and open-bed
+**Small boxes that water, warn and feed a farm.** Designed and tested in software first, for polyhouse and open-bed
 growers in Karnataka. Plus a 3D design of the greenhouse they could grow into.
 
 **Open it:** https://sumithshridhar.github.io/gh01-twin/
@@ -9,6 +9,7 @@ growers in Karnataka. Plus a 3D design of the greenhouse they could grow into.
 | --- | --- | --- |
 | 💧 **[Watering box](build/03-auto-watering/)** | Waters one bed by itself for about ₹1,750 a zone (ESP32, soil sensor, 12 V valve, no soldering). If anything is wrong, the valve stays shut and you get a message. | Being built first. Its rules pass 16 laptop checks. |
 | 🌡 **[Heat-and-dew alarm](build/04-heat-dew-alarm/)** | Warns before heat stress or a wet-leaf night, for about ₹2,100. | Rules pass 16 laptop checks. No board sketch yet. |
+| 🥬 **[Hydro box](build/05-hydro-box/)** | Makes a hydroponic system run itself for about ₹9,400: keeps the pump honest, doses nutrients and pH in tiny steps, and stops if a dose did nothing twice. | New (14 Nov). Rules pass 19 laptop checks. No board sketch yet. |
 | 🏠 **The full greenhouse** | The showroom: a 45 m² tomato house and its farm in 3D, every machine at real size. | A design. Not built. |
 
 ## Try to break the watering box
@@ -23,7 +24,7 @@ One thing code can't fix: a valve that sticks open. So the hand tap stays on the
 ## Where it really stands
 
 - [x] Designed in 3D, every part modelled on a real product at real size
-- [x] The two boxes' rules pass 32 laptop checks
+- [x] The three boxes' rules pass 51 laptop checks
 - [ ] Runs on a real board
 - [ ] One bed, one season
 - [ ] Three farms
@@ -35,6 +36,7 @@ Each real test adds a line there.
 
 - [Part 3: the watering box](build/03-auto-watering/): parts, every wire, the code and its tests
 - [Part 4: the heat-and-dew alarm](build/04-heat-dew-alarm/): how it decides, and its tests
+- [Part 5: the hydro box](build/05-hydro-box/): a hydroponic system that runs itself and checks its own work; parts, prices and tests
 - [Part 1: a pest-counting camera](build/01-pest-camera/): Pi Zero 2 W + Camera Module 3, a tutorial
 - [Part 2: the R1 rover](build/02-r1-rover/): a **concept**. A hose, mud or a crate on the path would stop it, and that is not solved
 

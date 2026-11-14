@@ -1,5 +1,5 @@
 // Scene menu (17 Oct 2026): the worlds built for the videos, one click each, next to GH-01 itself.
-//   GH-01 farm (default) · soil-bed polyhouse with the R1 rover + the Part 3 watering kit (rover.js) ·
+//   GH-01 farm (default) · hydro box on a roof (hydro.js, 14 Nov) · soil-bed polyhouse with the R1 rover + the Part 3 watering kit (rover.js) ·
 //   Build R1: the rover's 43 parts on a tarp, fitted in 9 steps (buildr1.js, 10 Nov) ·
 //   Build Part 1 pest-camera bench (bench.js) · melon house (melon.js) · 1-hectare glasshouse with pipe rails (bigfarm.js)
 // Each extra world is loaded the first time it is picked, then shown/hidden (its show() hides the rest of the twin).
@@ -9,6 +9,9 @@ const SCENES = [
   { id: 'water', label: '💧 Watering box · built first', mod: './rover.js', share: 'rover', title: 'Build Part 3',
     note: 'One box waters one bed: a 12 V valve on the zone feed, an ESP32 and relay in the box, a soil sensor in the bed. If anything is wrong the valve stays shut.',
     cam: [[3.9, -1.9, 1.75], [1.15, -3.45, 0.55]] },
+  { id: 'hydro', label: '🥬 Hydro box · new', mod: './hydro.js', title: 'Build Part 5 · the hydro box',
+    note: 'An NFT rack that runs itself: the box keeps the pump honest and doses nutrients and pH in tiny steps. If a dose does nothing twice, it stops and tells you. Rules pass 19 laptop checks; not built yet. Click any part to open it.',
+    cam: [[4.4, -3.3, 1.9], [1.75, 0.05, 0.5]] },
   { id: 'bench', label: '📷 Pest camera · tutorial', mod: './bench.js', title: 'Build Part 1',
     note: 'Pi Zero 2 W + Camera Module 3 + timer + boost board on the bench, real parts at real size.',
     cam: [[0.32, -0.42, 0.42], [0.02, 0.06, 0.04]] },

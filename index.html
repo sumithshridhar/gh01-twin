@@ -1,8 +1,8 @@
 <meta charset="utf-8">
-<title>GH-01 · two small boxes that water and warn a farm</title>
+<title>GH-01 · small boxes that water, warn and feed a farm</title>
 <meta name="description" content="GH-01: a watering box and a heat-and-dew alarm for small farms, designed and tested in software first. Try to break the watering box, then walk the 3D greenhouse it could grow into.">
-<meta property="og:title" content="GH-01 · two small boxes that water and warn a farm">
-<meta property="og:description" content="A watering box that shuts the valve when anything goes wrong. Try to break it in your browser. Design stage: the rules pass 32 laptop checks; hardware is next.">
+<meta property="og:title" content="GH-01 · small boxes that water, warn and feed a farm">
+<meta property="og:description" content="A watering box that shuts the valve when anything goes wrong. Try to break it in your browser. New: a hydro box that makes an NFT rack run itself. Design stage: the rules pass 51 laptop checks; hardware is next.">
 <meta property="og:image" content="https://sumithshridhar.github.io/gh01-twin/og.jpg">
 <meta property="og:url" content="https://sumithshridhar.github.io/gh01-twin/">
 <meta property="og:type" content="website">
@@ -176,7 +176,7 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
 .ld p{margin:0;color:var(--muted)}
 .ld .what{font:500 20px/1.35 var(--body);color:var(--ink);max-width:620px}
 .ld .what em{font-style:normal;color:var(--sun)}
-.doors{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:6px}
+.doors{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:6px}
 .doors:has(#ld-start[hidden]){display:none}
 .door{all:unset;box-sizing:border-box;display:grid;gap:8px;align-content:start;padding:16px;border-radius:12px;cursor:pointer;
   background:rgba(255,255,255,.045);border:1px solid var(--line2);transition:transform .15s,border-color .15s,background .15s}
@@ -382,7 +382,7 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
   <div id="loading">
     <div class="ld">
       <b>GH-01</b>
-      <p class="what">Two small boxes that <em>water</em> and <em>warn</em> a farm. Plus a 3D design of the greenhouse they could grow into.</p>
+      <p class="what">Small boxes that <em>water</em>, <em>warn</em> and <em>feed</em> a farm. Plus a 3D design of the greenhouse they could grow into.</p>
       <div class="bar"><i id="ld-bar"></i></div>
       <span id="ld-step">Loading…</span>
       <div class="doors">
@@ -390,6 +390,8 @@ h3{font:600 13px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
           <span>Waters one bed by itself for about ₹1,750. If anything is wrong, the valve stays shut.</span><span class="go">Try to break it →</span></button>
         <a class="door" id="door-alarm" href="https://github.com/sumithshridhar/gh01-twin/tree/main/build/04-heat-dew-alarm" target="_blank" rel="noopener"><span class="tag t2">Rules tested</span><b>🌡 Heat-and-dew alarm</b>
           <span>Warns before heat stress or a wet-leaf night, for about ₹2,100. No 3D model yet.</span><span class="go">Read how it decides →</span></a>
+        <button class="door" id="door-hydro"><span class="tag t2">New · rules tested</span><b>🥬 Hydro box</b>
+          <span>Makes an NFT rack run itself for about ₹9,400: pump, nutrients and pH. If a dose does nothing twice, it stops and tells you.</span><span class="go">See it in 3D →</span></button>
         <button class="door" id="ld-start" hidden><span class="tag t3">Showroom · a design</span><b>🏠 The full greenhouse</b>
           <span>Every machine in 3D at real size. Click one to open it into its parts. Not built.</span><span class="go">Walk in →</span></button>
       </div>
